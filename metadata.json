@@ -1,0 +1,9 @@
+{
+  "name": "ÜrTC - Travel Companion",
+  "description": "ÜrTC (Your Travel Companion) keeps travelers a step ahead with live flights, city context, and budget tracking, guided by Apollo, the friendly dog.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone",
+    "camera"
+  ]
+}

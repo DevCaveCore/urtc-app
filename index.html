@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>ÜrTC - Travel Companion</title>
+  <meta name="description" content="ÜrTC by Cave Core Dynamics — Your AI-powered travel companion. Track flights, explore cities, plan budgets, and get help from Apollo AI. Travel Evolved." />
+  <meta name="theme-color" content="#0B0E14" />
+  <meta property="og:title" content="ÜrTC - Travel Evolved" />
+  <meta property="og:description" content="AI-powered travel companion by Cave Core Dynamics. Track flights via FlightAware, explore cities, plan trips with Apollo AI." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://cavecoredynamics.org/urtc" />
+  <link rel="canonical" href="https://cavecoredynamics.org/urtc" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet">
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAm5lbG7x6bdpXyXBzjYM7z9HxwOOnx3yw&libraries=places,marker,geometry&v=weekly"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Plus Jakarta Sans', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              orange: '#FF6B35',
+              blue: '#2D7DD2',
+              dark: '#0B0E14',
+              surface: '#151921',
+              glass: 'rgba(255, 255, 255, 0.03)',
+              apollo: '#D68C45'
+            }
+          },
+          animation: {
+            'float': 'float 6s ease-in-out infinite',
+            'fly-straight': 'flyStraight 2.5s ease-in-out forwards',
+            'fade-in-text': 'fadeInText 2.5s ease-in-out forwards',
+            'smoke-reveal': 'smokeReveal 2s ease-out forwards',
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'shimmer': 'shimmer 2s linear infinite',
+            'wag': 'wag 0.5s ease-in-out infinite alternate',
+          },
+          keyframes: {
+            float: {
+              '0%, 100%': { transform: 'translateY(0)' },
+              '50%': { transform: 'translateY(-10px)' },
+            },
+            flyStraight: {
+              '0%': { transform: 'translateX(-120vw)', opacity: '0' },
+              '10%': { opacity: '1' },
+              '100%': { transform: 'translateX(120vw)', opacity: '1' }
+            },
+            fadeInText: {
+              '0%': { opacity: '0', transform: 'translateX(-50px)' },
+              '40%': { opacity: '0' },
+              '60%': { opacity: '1', transform: 'translateX(0)' },
+              '100%': { opacity: '0', transform: 'translateX(50px)' }
+            },
+            smokeReveal: {
+              '0%': { opacity: '0', transform: 'scale(0.8) translateY(20px)', filter: 'blur(20px)' },
+              '60%': { opacity: '0.8', filter: 'blur(5px)' },
+              '100%': { opacity: '1', transform: 'scale(1) translateY(0)', filter: 'blur(0px)' }
+            },
+            shimmer: {
+              '0%': { transform: 'translateX(-100%)' },
+              '100%': { transform: 'translateX(100%)' }
+            },
+            wag: {
+              '0%': { transform: 'rotate(-10deg)' },
+              '100%': { transform: 'rotate(10deg)' }
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0B0E14;
+      color: white;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Hide scrollbar for Chrome, Safari and Opera */
+    .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+    }
+
+    /* Hide scrollbar for IE, Edge and Firefox */
+    .scrollbar-hide {
+      -ms-overflow-style: none;
+      /* IE and Edge */
+      scrollbar-width: none;
+      /* Firefox */
+    }
+
+    /* Custom Modern Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Glass Utility */
+    .glass-panel {
+      background: rgba(21, 25, 33, 0.7);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .glass-card {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+  </style>
+
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+
+</html>
