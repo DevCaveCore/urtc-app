@@ -6,6 +6,7 @@ import { Note, BudgetItem, Pass, UserTier } from '../types';
 import { EnhancedApolloDogIcon } from './ApolloDog';
 import { getBudgetPlan, generateAiNote } from '../services/geminiService';
 import { getLocationSuggestions } from '../services/mockService';
+import { SwipeToDelete } from './SwipeToDelete';
 
 interface PlansViewProps {
  notes: Note[];
@@ -328,7 +329,8 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
              {/* Notes List */}
              <div className="grid gap-4">
                  {notes.map(note => (
-                     <div key={note.id} className="bg-white dark:bg-[#151921] p-0 rounded-2xl border border-gray-200 dark:border-white/10 shadow-sm overflow-hidden group hover:shadow-md transition-all">
+                     <SwipeToDelete key={note.id} onDelete={() => onDeleteNote(note.id)}>
+                         <div className="bg-white dark:bg-[#151921] p-0 rounded-2xl border border-gray-200 dark:border-white/10 shadow-sm overflow-hidden group hover:shadow-md transition-all">
                         {/* Note Header Stripe */}
                         <div className="h-1.5 w-full bg-gradient-to-r from-brand-orange to-brand-blue"></div>
                         
@@ -358,6 +360,7 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
                             </div>
                         </div>
                      </div>
+                 </SwipeToDelete>
                  ))}
                  
                  {notes.length === 0 && !isAddingNote && (
@@ -492,7 +495,8 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
                      const isOver = actual > cat.planned;
 
                      return (
-                         <div key={cat.id} className="bg-white dark:bg-[#151921] p-3 rounded-xl border border-gray-200 dark:border-white/10 shadow-sm space-y-2 group">
+                         <SwipeToDelete key={cat.id} onDelete={() => removeCategory(cat.id)}>
+                             <div className="bg-white dark:bg-[#151921] p-3 rounded-xl border border-gray-200 dark:border-white/10 shadow-sm space-y-2 group">
                              <div className="flex items-center gap-3">
                                  <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-white/5 flex items-center justify-center text-gray-500 dark:text-gray-300">
                                      {getCategoryIcon(cat.type)}
@@ -530,7 +534,7 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
                                     style={{ width: `${percentage}%` }}
                                  ></div>
                              </div>
-                         </div>
+                         </SwipeToDelete>
                      );
                  })}
              </div>
@@ -631,7 +635,8 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
             ) : (
                 <div className="grid gap-3">
                     {passes.map(pass => (
-                        <div key={pass.id} className="bg-white dark:bg-[#151921] rounded-2xl border border-gray-200 dark:border-white/5 overflow-hidden group hover:border-brand-blue/30 transition-all shadow-sm">
+                        <SwipeToDelete key={pass.id} onDelete={() => onDeletePass(pass.id)}>
+                            <div className="bg-white dark:bg-[#151921] rounded-2xl border border-gray-200 dark:border-white/5 overflow-hidden group hover:border-brand-blue/30 transition-all shadow-sm">
                             <div className="p-4 flex justify-between items-center">
                                 <div className="flex items-center gap-4">
                                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center border border-white/5 ${
@@ -669,6 +674,7 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
                                 </div>
                             )}
                         </div>
+                        </SwipeToDelete>
                     ))}
                 </div>
             )}

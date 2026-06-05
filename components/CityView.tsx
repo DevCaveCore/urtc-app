@@ -6,6 +6,7 @@ import { fetchRealWeather, fetchTravelNews } from '../services/apiService';
 import { getTransitRates } from '../services/mockService';
 import { getActiveUser } from '../services/authService';
 import { supabase } from '../services/supabaseClient';
+import { SwipeToDelete } from './SwipeToDelete';
 
 interface CityViewProps {
     onAddToBudget: (item: BudgetItem) => void;
@@ -427,31 +428,33 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
                             No saved places yet.
                         </div>
                     ) : savedPlaces.map((place, i) => (
-                        <div key={place.id} className="bg-white dark:bg-[#151921] p-3 rounded-2xl border border-brand-orange/30 flex gap-4 group shadow-sm relative overflow-hidden">
-                            <div className="w-24 h-24 rounded-xl bg-gray-200 dark:bg-gray-800 shrink-0 overflow-hidden relative">
-                                <img src={place.image} alt={place.name} className="w-full h-full object-cover" />
-                                <div className="absolute top-1 left-1 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white flex items-center gap-1"><Star size={8} className="text-brand-orange fill-current" /> {place.rating}</div>
-                            </div>
-                            <div className="flex-1 flex flex-col justify-between py-1">
-                                <div>
-                                    <div className="flex justify-between items-start">
-                                        <h4 className="text-gray-900 dark:text-white font-bold text-lg leading-tight">{place.name}</h4>
-                                        <button onClick={() => toggleSavePlace(place)} className="p-2 bg-red-500/10 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition shrink-0 active:scale-95"><Trash2 size={16} /></button>
-                                    </div>
-                                    <p className="text-gray-500 dark:text-gray-400 text-xs mt-1 line-clamp-1">{place.description}</p>
+                        <SwipeToDelete key={place.id} onDelete={() => toggleSavePlace(place)}>
+                            <div className="bg-white dark:bg-[#151921] p-3 rounded-2xl border border-brand-orange/30 flex gap-4 group shadow-sm relative overflow-hidden">
+                                <div className="w-24 h-24 rounded-xl bg-gray-200 dark:bg-gray-800 shrink-0 overflow-hidden relative">
+                                    <img src={place.image} alt={place.name} className="w-full h-full object-cover" />
+                                    <div className="absolute top-1 left-1 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white flex items-center gap-1"><Star size={8} className="text-brand-orange fill-current" /> {place.rating}</div>
                                 </div>
-                                <div className="flex justify-between items-center border-t border-gray-200 dark:border-white/5 pt-2 mt-2">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-[10px] font-bold bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-white px-1.5 py-0.5 rounded">
-                                            {Array(place.priceLevel).fill('$').join('')}
-                                        </span>
+                                <div className="flex-1 flex flex-col justify-between py-1">
+                                    <div>
+                                        <div className="flex justify-between items-start">
+                                            <h4 className="text-gray-900 dark:text-white font-bold text-lg leading-tight">{place.name}</h4>
+                                            <button onClick={() => toggleSavePlace(place)} className="p-2 bg-red-500/10 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition shrink-0 active:scale-95"><Trash2 size={16} /></button>
+                                        </div>
+                                        <p className="text-gray-500 dark:text-gray-400 text-xs mt-1 line-clamp-1">{place.description}</p>
                                     </div>
-                                    <a href={place.websiteUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-brand-blue flex items-center gap-1 hover:underline">
-                                        View on Google <ExternalLink size={10} />
-                                    </a>
+                                    <div className="flex justify-between items-center border-t border-gray-200 dark:border-white/5 pt-2 mt-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[10px] font-bold bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-white px-1.5 py-0.5 rounded">
+                                                {Array(place.priceLevel).fill('$').join('')}
+                                            </span>
+                                        </div>
+                                        <a href={place.websiteUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-brand-blue flex items-center gap-1 hover:underline">
+                                            View on Google <ExternalLink size={10} />
+                                        </a>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        </SwipeToDelete>
                     ))}
                 </div>
             ) : (
