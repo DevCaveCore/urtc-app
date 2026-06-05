@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 export const API_KEYS = {
     FLIGHTAWARE: "ydaGQPxfpA94dNZ05GRNur8vzCofygmn",
     OWM: "20372103888ca0c31fa1bb6a11925209",

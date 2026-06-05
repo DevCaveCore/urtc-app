@@ -43,6 +43,8 @@ export const SwipeToDelete: React.FC<SwipeToDeleteProps> = ({ children, onDelete
         dragElastic={{ left: 0.8, right: 0 }} // Elasticity on left pull, hard stop on right pull
         onDragEnd={handleDragEnd}
         animate={controls}
+        onPointerDownCapture={(e) => e.stopPropagation()}
+        onTouchStartCapture={(e) => e.stopPropagation()}
         className="relative z-10 w-full touch-pan-y"
       >
         <div>

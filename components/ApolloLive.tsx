@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { X, Mic, MicOff, Activity, Volume2, WifiOff } from 'lucide-react';
 import { EnhancedApolloDogIcon } from './ApolloDog';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
+import { API_KEYS } from "../config";
 
 interface ApolloLiveProps {
  isOpen: boolean;
@@ -102,7 +103,7 @@ export const ApolloLive: React.FC<ApolloLiveProps> = ({ isOpen, onClose }) => {
    const startSession = async () => {
      try {
        setStatus('Connecting to Apollo...');
-       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+       const ai = new GoogleGenAI({ apiKey: API_KEYS.GEMINI });
        
        // 1. Setup Audio Output Context (24kHz for Gemini)
        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });

@@ -35,7 +35,7 @@ const CheckoutForm = ({ selectedPlan, stripeEmail, setStripeEmail, onSuccess }: 
 
         const {error, paymentMethod} = await stripe.createPaymentMethod({
             type: 'card',
-            card: cardElement,
+            card: cardElement as any,
             billing_details: {
                 email: stripeEmail,
             },

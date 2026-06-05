@@ -534,6 +534,7 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
                                     style={{ width: `${percentage}%` }}
                                  ></div>
                              </div>
+                         </div>
                          </SwipeToDelete>
                      );
                  })}
