@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/aeroapi/:match*",
+      "destination": "https://aeroapi.flightaware.com/aeroapi/:match*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

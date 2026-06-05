@@ -166,7 +166,7 @@ export const fetchRealFlights = async (query: string, flightDate?: string, airli
 export const fetchRandomFlight = async (): Promise<Flight | null> => {
   try {
     const response = await fetch(
-      `https://aeroapi.flightaware.com/aeroapi/airports/KATL/flights/scheduled_departures`,
+      `/aeroapi/airports/KATL/flights/scheduled_departures`,
       {
         headers: {
           'x-apikey': API_KEYS.FLIGHTAWARE,
@@ -212,7 +212,7 @@ export const fetchRandomFlight = async (): Promise<Flight | null> => {
 export const fetchFlightTrack = async (flightId: string): Promise<FlightPosition[]> => {
   try {
     const response = await fetch(
-      `https://aeroapi.flightaware.com/aeroapi/flights/${flightId}/track`,
+      `/aeroapi/flights/${flightId}/track`,
       {
         headers: {
           'x-apikey': API_KEYS.FLIGHTAWARE,
@@ -317,8 +317,8 @@ export const fetchAirportConditions = async (code: string): Promise<AirportCondi
   try {
     // Combine delays and weather info for an airport
     const [delaysRes, weatherRes] = await Promise.all([
-        fetch(`https://aeroapi.flightaware.com/aeroapi/airports/${code}/delays`, { headers: { 'x-apikey': API_KEYS.FLIGHTAWARE } }),
-        fetch(`https://aeroapi.flightaware.com/aeroapi/airports/${code}/weather`, { headers: { 'x-apikey': API_KEYS.FLIGHTAWARE } })
+        fetch(`/aeroapi/airports/${code}/delays`, { headers: { 'x-apikey': API_KEYS.FLIGHTAWARE } }),
+        fetch(`/aeroapi/airports/${code}/weather`, { headers: { 'x-apikey': API_KEYS.FLIGHTAWARE } })
     ]);
     const delays = delaysRes.ok ? await delaysRes.json() : null;
     const weather = weatherRes.ok ? await weatherRes.json() : null;
