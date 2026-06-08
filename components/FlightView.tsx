@@ -377,7 +377,7 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
             <div className="bg-white dark:bg-brand-surface/90 backdrop-blur-xl p-4 rounded-2xl border border-gray-200 dark:border-white/10 shadow-xl transition-all duration-300 focus-within:shadow-brand-orange/20 focus-within:border-brand-orange/30">
                 {searchMode === 'flight' ? (
                     /* Flight Number Search */
-                    <div className="flex gap-3">
+                    <div className="flex flex-col sm:flex-row gap-3">
                         <div className="flex-1 relative">
                             <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-brand-orange">Flight Number</label>
                             <input
@@ -425,7 +425,7 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
                 ) : (
                     /* Airport Route Search */
                     <div className="flex flex-col gap-3">
-                        <div className="flex gap-3">
+                        <div className="flex flex-col sm:flex-row gap-3">
                             <div className="flex-1 relative">
                                 <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-brand-orange">From</label>
                                 <input
@@ -483,7 +483,7 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
                                 )}
                             </div>
                         </div>
-                        <div className="flex gap-3">
+                        <div className="flex flex-col sm:flex-row gap-3">
                             <div className="flex-1 relative">
                                 <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">Date (Opt)</label>
                                 <input
@@ -532,9 +532,13 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
                             <Radar size={32} />
                         </div>
                         <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Search for Flights</h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-xs mx-auto leading-relaxed">
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-2 max-w-xs mx-auto leading-relaxed">
                             Track any flight in real time using FlightAware data. Search by flight number or browse airport departures.
                         </p>
+                        <div className="bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400 text-[10px] p-2 rounded-lg max-w-xs mx-auto mb-6 flex items-start gap-2 text-left">
+                            <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                            <span>FlightAware tracks active and upcoming flights only. It is not designed for future travel booking.</span>
+                        </div>
                         <div className="flex flex-wrap justify-center gap-2 mb-6">
                             <button onClick={() => { setSearchMode('flight'); setSearchQuery('DL1182'); }} className="text-xs font-bold bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/10 hover:border-brand-orange/30 hover:text-brand-orange transition">
                                 DL1182

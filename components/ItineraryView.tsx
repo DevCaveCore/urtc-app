@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, FileText, WifiOff, Heart, Cookie, PenLine, Calculator, QrCode, X, ChevronDown, Plane, Hotel, Ticket, Train, Sparkles, AlertCircle, Check, Loader2, Utensils, ShoppingBag, MapPin, Globe, Calendar, Lock, Download, ExternalLink } from 'lucide-react';
+import { Plus, Trash2, FileText, WifiOff, Heart, Cookie, PenLine, Calculator, QrCode, X, ChevronDown, Plane, Hotel, Ticket, Train, Sparkles, AlertCircle, Check, Loader2, Utensils, ShoppingBag, MapPin, Globe, Calendar, Lock, Download, ExternalLink, Share, Wine } from 'lucide-react';
 import { Note, BudgetItem, Pass, UserTier } from '../types';
 import { EnhancedApolloDogIcon } from './ApolloDog';
 import { getBudgetPlan, generateAiNote } from '../services/geminiService';
@@ -23,9 +23,10 @@ interface PlansViewProps {
 
 interface BudgetCategory {
     id: string;
-    type: 'Flight' | 'Hotel' | 'Food' | 'Attraction' | 'Other'; 
+    type: 'Flight' | 'Hotel' | 'Food' | 'Attraction' | 'Bars & Nightlife' | 'Other'; 
     label: string; 
     planned: number;
+    allocated?: number;
 }
 
 export const ItineraryView: React.FC<PlansViewProps> = ({
@@ -42,11 +43,12 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
 
  // Budget Logic
  const [categories, setCategories] = useState<BudgetCategory[]>([
-    { id: '1', type: 'Flight', label: 'Flights', planned: 1000 },
-    { id: '2', type: 'Hotel', label: 'Hotels', planned: 800 },
-    { id: '3', type: 'Food', label: 'Food & Dining', planned: 400 },
-    { id: '4', type: 'Attraction', label: 'Attractions', planned: 200 },
-    { id: '5', type: 'Other', label: 'Shopping & Misc', planned: 100 },
+    { id: '1', type: 'Flight', label: 'Flights', planned: 1000, allocated: 1000 },
+    { id: '2', type: 'Hotel', label: 'Hotels', planned: 800, allocated: 800 },
+    { id: '3', type: 'Food', label: 'Food & Dining', planned: 400, allocated: 400 },
+    { id: '4', type: 'Attraction', label: 'Attractions', planned: 200, allocated: 200 },
+    { id: '5', type: 'Bars & Nightlife', label: 'Bars & Nightlife', planned: 150, allocated: 150 },
+    { id: '6', type: 'Other', label: 'Shopping & Misc', planned: 100, allocated: 100 },
  ]);
  const [tripDays, setTripDays] = useState(5);
  const [tripDest, setTripDest] = useState('');
@@ -142,11 +144,11 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
     
     if (data) {
         setAiProposal([
-            { id: 'ai-1', type: 'Flight', label: 'Flights', planned: data.flight || 0 },
-            { id: 'ai-2', type: 'Hotel', label: 'Hotels', planned: data.hotel || 0 },
-            { id: 'ai-3', type: 'Food', label: 'Food & Dining', planned: data.food || 0 },
-            { id: 'ai-4', type: 'Attraction', label: 'Attractions', planned: data.attraction || 0 },
-            { id: 'ai-5', type: 'Other', label: 'Misc & Shopping', planned: data.other || 0 },
+            { id: 'ai-1', type: 'Flight', label: 'Flights', planned: data.flight || 0, allocated: data.flight || 0 },
+            { id: 'ai-2', type: 'Hotel', label: 'Hotels', planned: data.hotel || 0, allocated: data.hotel || 0 },
+            { id: 'ai-3', type: 'Food', label: 'Food & Dining', planned: data.food || 0, allocated: data.food || 0 },
+            { id: 'ai-4', type: 'Attraction', label: 'Attractions', planned: data.attraction || 0, allocated: data.attraction || 0 },
+            { id: 'ai-5', type: 'Other', label: 'Misc & Shopping', planned: data.other || 0, allocated: data.other || 0 },
         ]);
     }
  };
@@ -212,6 +214,7 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
         case 'Hotel': return <Hotel size={14} />;
         case 'Food': return <Utensils size={14} />;
         case 'Attraction': return <Ticket size={14} />;
+        case 'Bars & Nightlife': return <Wine size={14} />;
         default: return <ShoppingBag size={14} />;
     }
  };
@@ -347,7 +350,25 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
                                     </div>
                                     <h3 className="font-bold text-lg text-gray-900 dark:text-white leading-tight">{note.title}</h3>
                                 </div>
-                                <button onClick={() => onDeleteNote(note.id)} className="text-gray-300 hover:text-red-500 p-1 transition"><Trash2 size={16}/></button>
+                                <div className="flex items-center gap-1">
+                                    <button 
+                                        onClick={() => {
+                                            if (navigator.share) {
+                                                navigator.share({
+                                                    title: note.title,
+                                                    text: `${note.tripName ? `Trip: ${note.tripName}\n` : ''}${note.title}\n\n${note.content}`
+                                                }).catch(console.error);
+                                            } else {
+                                                alert("Sharing is not supported on this device/browser.");
+                                            }
+                                        }} 
+                                        className="text-gray-400 hover:text-brand-blue p-1 transition"
+                                        title="Share Note"
+                                    >
+                                        <Share size={16}/>
+                                    </button>
+                                    <button onClick={() => onDeleteNote(note.id)} className="text-gray-300 hover:text-red-500 p-1 transition"><Trash2 size={16}/></button>
+                                </div>
                             </div>
                             
                             <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-line">
@@ -393,7 +414,7 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
 
                     {!aiProposal ? (
                         <div className="space-y-3">
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <div className="relative">
                                 <input 
                                     type="text" 
@@ -512,18 +533,34 @@ export const ItineraryView: React.FC<PlansViewProps> = ({
                                  <button onClick={() => removeCategory(cat.id)} className="opacity-0 group-hover:opacity-100 p-2 text-gray-300 hover:text-red-500 transition"><Trash2 size={14}/></button>
                              </div>
 
-                             <div className="flex justify-between items-center text-xs">
-                                 <div className="flex items-center gap-1">
-                                     <span className="text-gray-400">Target: $</span>
-                                     <input 
-                                         type="number" 
-                                         value={cat.planned} 
-                                         onChange={(e) => updateCategory(cat.id, 'planned', Number(e.target.value))}
-                                         className="w-16 bg-transparent text-gray-700 dark:text-gray-300 font-mono focus:border-b focus:border-brand-orange outline-none"
-                                     />
+                             <div className="grid grid-cols-3 gap-2 text-[10px] items-center mb-1">
+                                 <div className="flex flex-col">
+                                     <span className="text-gray-400 uppercase font-bold">Target</span>
+                                     <div className="flex items-center">
+                                        <span className="text-gray-500">$</span>
+                                        <input 
+                                            type="number" 
+                                            value={cat.planned} 
+                                            onChange={(e) => updateCategory(cat.id, 'planned', Number(e.target.value))}
+                                            className="w-full bg-transparent text-gray-700 dark:text-gray-300 font-mono font-bold focus:border-b focus:border-brand-orange outline-none"
+                                        />
+                                     </div>
                                  </div>
-                                 <div className={`font-mono font-bold ${isOver ? 'text-red-500' : 'text-gray-900 dark:text-white'}`}>
-                                     Actual: ${actual}
+                                 <div className="flex flex-col">
+                                     <span className="text-blue-400 uppercase font-bold">Allocated</span>
+                                     <div className="flex items-center">
+                                        <span className="text-blue-500">$</span>
+                                        <input 
+                                            type="number" 
+                                            value={cat.allocated || 0} 
+                                            onChange={(e) => updateCategory(cat.id, 'allocated', Number(e.target.value))}
+                                            className="w-full bg-transparent text-blue-500 font-mono font-bold focus:border-b focus:border-blue-400 outline-none"
+                                        />
+                                     </div>
+                                 </div>
+                                 <div className="flex flex-col items-end">
+                                     <span className="text-gray-400 uppercase font-bold">Spent</span>
+                                     <span className={`font-mono font-bold ${isOver ? 'text-red-500' : 'text-gray-900 dark:text-white'}`}>${actual}</span>
                                  </div>
                              </div>
 

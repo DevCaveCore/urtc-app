@@ -110,6 +110,8 @@ export interface Place {
   coordinates: { x: number; y: number };
   description: string;
   websiteUrl?: string;
+  distanceText?: string;
+  durationText?: string;
 }
 
 export interface NewsArticle {

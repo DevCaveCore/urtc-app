@@ -30,6 +30,8 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
     const [savedPlaces, setSavedPlaces] = useState<Place[]>([]);
     const [activeTab, setActiveTab] = useState<'map' | 'list' | 'saved'>('list');
     const [searchQuery, setSearchQuery] = useState('');
+    const [dietaryFilter, setDietaryFilter] = useState('');
+    const [baseLocation, setBaseLocation] = useState('');
     const [citySelectorOpen, setCitySelectorOpen] = useState(false);
     const [isSearching, setIsSearching] = useState(false);
     const [mapReady, setMapReady] = useState(false);
@@ -182,8 +184,9 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
         // If Google Maps Places library is available
         if (window.google && window.google.maps && window.google.maps.places) {
             const center = locationOverride || (googleMapRef.current ? googleMapRef.current.getCenter() : null);
+            const fullQuery = dietaryFilter ? `${dietaryFilter} ${query}` : query;
             const request = {
-                textQuery: query + " in " + currentCity,
+                textQuery: fullQuery + " in " + currentCity,
                 fields: ['id', 'displayName', 'types', 'rating', 'priceLevel', 'photos', 'location', 'formattedAddress', 'googleMapsURI', 'websiteURI'],
                 locationBias: center,
             };
@@ -191,7 +194,7 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
             try {
                 const { places } = await window.google.maps.places.Place.searchByText(request);
                 if (places) {
-                    const mapped = places.map((p: any, i: number) => {
+                    let mapped = places.map((p: any, i: number) => {
                         const priceDetails = estimatePriceDetails(p);
                         return {
                             id: p.id,
@@ -207,6 +210,40 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
                             websiteUrl: p.googleMapsURI || p.websiteURI || `https://www.google.com/search?q=${encodeURIComponent(p.displayName + " " + currentCity)}`
                         };
                     });
+
+                    if (baseLocation && window.google.maps.DistanceMatrixService) {
+                        const service = new window.google.maps.DistanceMatrixService();
+                        const destinations = places.map((p:any) => p.location);
+                        try {
+                            const response: any = await new Promise((resolve, reject) => {
+                                service.getDistanceMatrix({
+                                    origins: [baseLocation + ' in ' + currentCity],
+                                    destinations: destinations,
+                                    travelMode: 'DRIVING',
+                                }, (res: any, status: any) => {
+                                    if (status === 'OK') resolve(res);
+                                    else reject(status);
+                                });
+                            });
+                            
+                            if (response?.rows?.[0]) {
+                                const elements = response.rows[0].elements;
+                                mapped = mapped.map((m: any, idx: number) => {
+                                    if (elements[idx]?.status === 'OK') {
+                                        return {
+                                            ...m,
+                                            distanceText: elements[idx].distance.text,
+                                            durationText: elements[idx].duration.text
+                                        };
+                                    }
+                                    return m;
+                                });
+                            }
+                        } catch (e) {
+                            console.error('Distance matrix error', e);
+                        }
+                    }
+
                     setPlaces(mapped);
 
                     // Update Map Markers if map is active
@@ -344,6 +381,33 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
                     />
                 </div>
 
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1 relative">
+                        <MapPin className="absolute left-4 top-3 text-brand-orange" size={16} />
+                        <input
+                            type="text"
+                            placeholder="Base Location (e.g. Hotel Name)"
+                            value={baseLocation}
+                            onChange={(e) => setBaseLocation(e.target.value)}
+                            className="w-full bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl py-2.5 pl-12 pr-4 text-sm text-gray-900 dark:text-white focus:border-brand-orange outline-none transition-all shadow-sm"
+                        />
+                    </div>
+                    <div className="flex-1 relative">
+                        <select
+                            value={dietaryFilter}
+                            onChange={(e) => setDietaryFilter(e.target.value)}
+                            className="w-full bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl py-2.5 pl-4 pr-4 text-sm text-gray-900 dark:text-white focus:border-brand-orange outline-none transition-all shadow-sm appearance-none cursor-pointer"
+                        >
+                            <option value="">Any Diet</option>
+                            <option value="Vegetarian">Vegetarian</option>
+                            <option value="Vegan">Vegan</option>
+                            <option value="Gluten-Free">Gluten-Free</option>
+                            <option value="Halal">Halal</option>
+                        </select>
+                        <ChevronDown className="absolute right-4 top-3 text-gray-500 pointer-events-none" size={16} />
+                    </div>
+                </div>
+
                 <div className="flex p-1 bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl shadow-sm">
                     <button
                         onClick={() => setActiveTab('map')}
@@ -394,6 +458,12 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
                                         </div>
                                     </div>
                                     <p className="text-gray-500 dark:text-gray-400 text-xs mt-1 line-clamp-1">{place.description}</p>
+                                    {(place.distanceText || place.durationText) && (
+                                        <div className="flex items-center gap-2 mt-1.5 text-[10px] font-bold text-gray-500">
+                                            <div className="flex items-center gap-1 bg-gray-100 dark:bg-white/5 px-2 py-0.5 rounded text-gray-700 dark:text-gray-300"><Navigation size={10} className="text-brand-orange" /> {place.distanceText}</div>
+                                            <div className="flex items-center gap-1 bg-gray-100 dark:bg-white/5 px-2 py-0.5 rounded text-gray-700 dark:text-gray-300"><Car size={10} className="text-brand-blue" /> {place.durationText}</div>
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="flex justify-between items-center border-t border-gray-200 dark:border-white/5 pt-2 mt-2">
                                     <div className="flex items-center gap-2">

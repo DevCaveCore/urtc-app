@@ -1,7 +1,7 @@
 
 
 import React, { useEffect, useState, useRef } from 'react';
-import { X, Mic, MicOff, Activity, Volume2, WifiOff } from 'lucide-react';
+import { X, Mic, MicOff, Activity, Volume2, WifiOff, Share } from 'lucide-react';
 import { EnhancedApolloDogIcon } from './ApolloDog';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { API_KEYS } from "../config";
@@ -17,6 +17,7 @@ export const ApolloLive: React.FC<ApolloLiveProps> = ({ isOpen, onClose }) => {
  const [aiSpeaking, setAiSpeaking] = useState(false);
  const [volume, setVolume] = useState<number[]>(new Array(5).fill(10));
  const [error, setError] = useState<string | null>(null);
+ const [transcript, setTranscript] = useState<string>('');
 
  // Refs for audio handling to avoid re-renders
  const audioContextRef = useRef<AudioContext | null>(null);
@@ -143,8 +144,14 @@ export const ApolloLive: React.FC<ApolloLiveProps> = ({ isOpen, onClose }) => {
                    nextStartTimeRef.current = audioContextRef.current?.currentTime || 0;
                },
                onmessage: async (msg: LiveServerMessage) => {
+                   // Handle Transcript
+                   const textData = msg.serverContent?.modelTurn?.parts?.find(p => p.text)?.text;
+                   if (textData) {
+                       setTranscript(prev => prev + textData);
+                   }
+
                    // Handle Audio Output
-                   const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+                   const audioData = msg.serverContent?.modelTurn?.parts?.find(p => p.inlineData)?.inlineData?.data;
                    if (audioData && audioContextRef.current) {
                        setAiSpeaking(true);
                        const buffer = await decodeAudioData(audioData, audioContextRef.current);
@@ -301,6 +308,25 @@ export const ApolloLive: React.FC<ApolloLiveProps> = ({ isOpen, onClose }) => {
             <p className="text-gray-500 text-sm font-medium max-w-[200px] text-center leading-relaxed">
                 Start speaking. Apollo is listening using Gemini Live.
             </p>
+            
+            {transcript && (
+                <button 
+                    onClick={() => {
+                        if (navigator.share) {
+                            navigator.share({
+                                title: "Apollo's Recommendations",
+                                text: `Here is what Apollo suggested:\n\n${transcript}`
+                            }).catch(console.error);
+                        } else {
+                            alert("Sharing is not supported on this device/browser.");
+                        }
+                    }}
+                    className="mt-4 flex items-center gap-2 bg-brand-orange/10 text-brand-orange hover:bg-brand-orange/20 px-4 py-2 rounded-full text-xs font-bold transition-colors border border-brand-orange/20 shadow-sm"
+                >
+                    <Share size={14} />
+                    Share Apollo's Advice
+                </button>
+            )}
         </div>
      )}
    </div>
