@@ -4,7 +4,7 @@ import { Plane, Clock, AlertTriangle, Loader2, X, ArrowRight, ArrowLeftRight, Ex
 import { Flight, FlightStatus, BudgetItem, UserTier, FlightSchedule, AirportConditions, UserAccount, Trip } from '../types';
 import { fetchRealFlights, fetchFlightTrack, fetchSchedules, fetchAirportConditions, fetchRandomFlight } from '../services/apiService';
 import { fetchTrips, addFlightToTrip } from '../services/tripService';
-import { getAirportSuggestions, getAirportCoords, getAirlineSuggestions } from '../services/mockService';
+import { getAirportSuggestions, getAirportCoords, getAirlineSuggestions, resolveAirportCode } from '../services/mockService';
 import { getStatsForNerds } from '../services/authService';
 
 interface FlightViewProps {
@@ -277,8 +277,31 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                 }
             } else {
                 // Airport search
-                const oCode = originCity.split(' - ')[0].trim();
-                const dCode = destCity.split(' - ')[0].trim();
+                let oCode = originCity.split(' - ')[0].trim();
+                let dCode = destCity.split(' - ')[0].trim();
+
+                if (oCode) {
+                    const resolved = resolveAirportCode(oCode);
+                    if (!resolved) {
+                        setSearchError(`Could not find an airport for "From: ${oCode}". Try a city like 'Atlanta' or code like 'ATL'.`);
+                        setIsLoading(false);
+                        return;
+                    }
+                    oCode = resolved;
+                    if (oCode !== originCity.trim()) setOriginCity(oCode);
+                }
+
+                if (dCode) {
+                    const resolved = resolveAirportCode(dCode);
+                    if (!resolved) {
+                        setSearchError(`Could not find an airport for "To: ${dCode}". Try a city like 'Atlanta' or code like 'ATL'.`);
+                        setIsLoading(false);
+                        return;
+                    }
+                    dCode = resolved;
+                    if (dCode !== destCity.trim()) setDestCity(dCode);
+                }
+
                 if (!oCode && !dCode) {
                     setSearchError('Enter at least one airport code (e.g., ATL, JFK)');
                     setIsLoading(false);

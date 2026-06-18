@@ -126,6 +126,20 @@ export const getAirlineSuggestions = (query: string): string[] => {
    .map(a => `${a.code} - ${a.name}`);
 };
 
+export const resolveAirportCode = (query: string): string | null => {
+  if (!query) return null;
+  const q = query.toLowerCase().trim();
+  if (q.length === 3 || q.length === 4) return q.toUpperCase();
+  
+  const match = AIRPORTS.find(a => 
+      a.city.toLowerCase() === q || 
+      a.name.toLowerCase() === q ||
+      a.city.toLowerCase().includes(q)
+  );
+  
+  return match ? match.code : null;
+};
+
 export const getAirportCoords = (code: string) => {
    const airport = AIRPORTS.find(a => a.code === code);
    return airport ? { lat: airport.lat, lng: airport.lng } : { lat: 0, lng: 0 };
