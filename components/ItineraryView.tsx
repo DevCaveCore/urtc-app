@@ -6,6 +6,64 @@ import { getBudgetPlan, generateAiNote, generateTripStory } from '../services/ge
 import { getLocationSuggestions } from '../services/mockService';
 import { SwipeToDelete } from './SwipeToDelete';
 
+const PlansTutorialWidget = () => {
+    const [step, setStep] = useState(0);
+    const [isVisible, setIsVisible] = useState(true);
+
+    if (!isVisible) return null;
+
+    const steps = [
+        {
+            icon: <CalendarPlus size={20} className="text-brand-orange" />,
+            title: "Create & Manage",
+            desc: "Tap the + button to create a new trip. Manage all your active and archived itineraries right here from the dashboard."
+        },
+        {
+            icon: <PenLine size={20} className="text-brand-orange" />,
+            title: "Build Your Itinerary",
+            desc: "Open a trip to add flights, hotel reservations, links, and custom notes. Let Apollo generate a day-by-day plan for you."
+        },
+        {
+            icon: <Globe size={20} className="text-brand-blue" />,
+            title: "Sync Travel",
+            desc: "Collaborate with friends on your itineraries in real-time. This feature is coming soon in Version 1.3!"
+        }
+    ];
+
+    return (
+        <div className="bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-3xl p-5 mb-2 relative overflow-hidden shadow-lg animate-in fade-in">
+            <button onClick={() => setIsVisible(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-900 dark:text-gray-500 dark:hover:text-white transition">
+                <X size={16} />
+            </button>
+            <div className="flex gap-4 items-start">
+                <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center shrink-0">
+                    {steps[step].icon}
+                </div>
+                <div className="flex-1">
+                    <h3 className="font-bold text-gray-900 dark:text-white text-base mb-1">{steps[step].title}</h3>
+                    <p className="text-gray-500 dark:text-gray-400 text-xs leading-relaxed mb-4">{steps[step].desc}</p>
+                    <div className="flex items-center justify-between">
+                        <div className="flex gap-1.5">
+                            {steps.map((_, i) => (
+                                <div key={i} className={`h-1.5 rounded-full transition-all duration-300 ${i === step ? 'w-4 bg-brand-orange' : 'w-1.5 bg-gray-200 dark:bg-white/10'}`} />
+                            ))}
+                        </div>
+                        <button 
+                            onClick={() => {
+                                if (step < steps.length - 1) setStep(step + 1);
+                                else setIsVisible(false);
+                            }}
+                            className="text-brand-orange font-bold text-xs uppercase tracking-wider"
+                        >
+                            {step < steps.length - 1 ? 'Next' : 'Got it'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 interface PlansViewProps {
   user: UserAccount;
 }
@@ -98,24 +156,9 @@ export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user }) => 
                 </div>
             )}
 
-            {/* Diamond Sync Feature */}
-            {isPro && user.id !== 'guest' && (
-                <div className="bg-brand-blue/10 p-5 rounded-3xl border border-brand-blue/20 shadow-sm space-y-3 mb-2 animate-in zoom-in-95">
-                    <h3 className="font-bold text-lg dark:text-white flex items-center gap-2">
-                        <Globe size={18} className="text-brand-blue" /> Sync Travel
-                    </h3>
-                    <p className="text-xs text-gray-600 dark:text-gray-400">Collaborate with friends on your itineraries (Diamond Tier).</p>
-                    <div className="flex gap-2">
-                        <input 
-                            type="text" 
-                            placeholder="Friend's Email or Phone Number" 
-                            className="flex-1 bg-white dark:bg-black/30 border border-gray-200 dark:border-white/10 rounded-xl px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-brand-blue outline-none"
-                        />
-                        <button onClick={() => alert('Friend invite sent!')} className="bg-brand-blue text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg shadow-brand-blue/20 active:scale-95 transition whitespace-nowrap">
-                            Add Friend
-                        </button>
-                    </div>
-                </div>
+            {/* Plans Tab Interactive Tutorial / Sync Announcement */}
+            {user.id !== 'guest' && (
+                <PlansTutorialWidget />
             )}
 
             {user.id === 'guest' ? (

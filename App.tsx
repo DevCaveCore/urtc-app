@@ -13,7 +13,7 @@ import { ApolloLive } from './components/ApolloLive';
 import { DynamicIsland } from './components/DynamicIsland';
 import { AboutView } from './components/AboutView';
 import { DiamondTutorialOverlay } from './components/DiamondTutorialOverlay';
-import { InteractiveTour } from './components/InteractiveTour';
+import { TutorialOverlay } from './components/TutorialOverlay';
 import { InterstitialAd } from './components/InterstitialAd';
 import { getActiveUser, logout, setActiveUser } from './services/authService';
 import { fetchRealFlights } from './services/apiService';
@@ -362,7 +362,7 @@ const AppContent: React.FC = () => {
             )}
             
             {showDiamondTutorial && <DiamondTutorialOverlay onClose={handleCloseDiamondTutorial} />}
-            <InteractiveTour run={runTour} onFinish={() => setRunTour(false)} setTab={setActiveTab} />
+            {runTour && <TutorialOverlay onClose={() => setRunTour(false)} />}
 
             {/* Offline Banner */}
             {isOffline && (
