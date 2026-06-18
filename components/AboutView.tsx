@@ -1,100 +1,14 @@
-
 import React, { useState } from 'react';
-import { Info, Shield, Star, Crown, Lock, CreditCard, Type, User, LogOut, Code, CheckCircle, Settings, FileText, Check, X, ArrowRight, Gauge, Loader2, Users, Building } from 'lucide-react';
+import { Info, Shield, Star, Crown, Lock, CreditCard, Type, User, LogOut, Code, CheckCircle, Settings, FileText, Check, X, ArrowRight, Gauge, Loader2, Users, Building, Globe, AlertTriangle } from 'lucide-react';
 import { UserTier, UserAccount } from '../types';
 import { LoginView } from './auth/LoginView';
 import { RegisterView } from './auth/RegisterView';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
-import { redeemAccessCode, logout, getActiveUser, getStatsForNerds, setStatsForNerds, updateUserTier } from '../services/authService';
+import { redeemAccessCode, logout, getActiveUser, setStatsForNerds, updateUserTier } from '../services/authService';
+import { useLanguage } from '../i18n/context';
 
 const stripePromise = loadStripe('pk_live_51TUeysRqoflFtIgs5AqotIPRZ1Q6sWjxcdtXeEKYhT8Au7rdYJJ8JIaTdmohYZ7028erR55De0nJ2eo3WOXB3wF500XZknvsPh');
-
-const CheckoutForm = ({ selectedPlan, stripeEmail, setStripeEmail, onSuccess }: any) => {
-    const stripe = useStripe();
-    const elements = useElements();
-    const [stripeProcessing, setStripeProcessing] = useState(false);
-    const [errorMsg, setErrorMsg] = useState('');
-
-    const handleSubmit = async (event: React.FormEvent) => {
-        event.preventDefault();
-
-        if (!stripe || !elements) {
-            return;
-        }
-
-        setStripeProcessing(true);
-        setErrorMsg('');
-
-        const cardElement = elements.getElement(CardElement);
-
-        if (!cardElement) {
-            setStripeProcessing(false);
-            return;
-        }
-
-        const {error, paymentMethod} = await stripe.createPaymentMethod({
-            type: 'card',
-            card: cardElement as any,
-            billing_details: {
-                email: stripeEmail,
-            },
-        });
-
-        if (error) {
-            setErrorMsg(error.message || 'Payment failed');
-            setStripeProcessing(false);
-        } else {
-            console.log('PaymentMethod', paymentMethod);
-            // Simulate backend confirmation success
-            setTimeout(() => {
-                onSuccess();
-            }, 1000);
-        }
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1">
-                <label className="text-[10px] uppercase font-bold text-gray-500">Email Address</label>
-                <input required type="email" value={stripeEmail} onChange={e => setStripeEmail(e.target.value)} placeholder="traveler@example.com" className="w-full bg-[#0f1115] border border-white/10 focus:border-[#8DE2FF]/50 focus:ring-1 focus:ring-[#8DE2FF]/50 rounded-xl p-4 text-sm text-white outline-none transition-all shadow-inner placeholder-gray-600" />
-            </div>
-            <div className="space-y-1">
-                <label className="text-[10px] uppercase font-bold text-gray-500">Card Information</label>
-                <div className="bg-[#0f1115] border border-white/10 focus-within:border-[#8DE2FF]/50 focus-within:ring-1 focus-within:ring-[#8DE2FF]/50 rounded-xl p-4 shadow-inner transition-all">
-                    <CardElement options={{
-                        style: {
-                            base: {
-                                fontSize: '16px',
-                                color: '#ffffff',
-                                '::placeholder': {
-                                    color: '#6b7280',
-                                },
-                                iconColor: '#8DE2FF',
-                            },
-                            invalid: {
-                                color: '#ef4444',
-                                iconColor: '#ef4444',
-                            },
-                        },
-                    }} />
-                </div>
-            </div>
-            
-            {errorMsg && <div className="text-red-500 text-xs font-bold">{errorMsg}</div>}
-
-
-
-            <button 
-                disabled={!stripe || stripeProcessing}
-                type="submit"
-                className="w-full py-4 mt-2 bg-gradient-to-r from-[#E0FFFF] via-[#8DE2FF] to-[#3AB0FF] text-black rounded-xl font-black shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-            >
-                {stripeProcessing ? <Loader2 size={18} className="animate-spin" /> : `Pay ${selectedPlan === 'Diamond Single' ? '$13.99' : '$22.99'}`}
-            </button>
-        </form>
-    );
-};
 
 interface AboutViewProps {
  currentUser: UserAccount;
@@ -103,7 +17,8 @@ interface AboutViewProps {
  onTextSizeChange: (size: 'sm' | 'base' | 'lg') => void;
 }
 
-export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate, textSize, onTextSizeChange }) => {
+export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, onUserUpdate, textSize, onTextSizeChange }) => {
+ const { language, setLanguage, t } = useLanguage();
  const [activeTab, setActiveTab] = useState<'access' | 'settings' | 'info'>('access');
  const [showLogin, setShowLogin] = useState(false);
  const [showRegister, setShowRegister] = useState(false);
@@ -111,15 +26,14 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
  const [accessCode, setAccessCode] = useState('');
  const [codeError, setCodeError] = useState('');
 
- const [statsNerd, setStatsNerd] = useState(getStatsForNerds());
- const [showStripe, setShowStripe] = useState(false);
- const [stripeEmail, setStripeEmail] = useState('');
- const [stripeCard, setStripeCard] = useState('');
- const [stripeProcessing, setStripeProcessing] = useState(false);
  const [showContactForm, setShowContactForm] = useState(false);
  const [contactEmail, setContactEmail] = useState('');
  const [contactSubject, setContactSubject] = useState('Small Business Inquiry');
  const [contactSent, setContactSent] = useState(false);
+
+ const [showCancelModal, setShowCancelModal] = useState(false);
+ const [cancelReason, setCancelReason] = useState('Too expensive');
+ const [cancelFeedback, setCancelFeedback] = useState('');
 
   const handleLogout = async () => {
     await logout();
@@ -135,6 +49,19 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
     } catch (e) {
         setCodeError('Invalid Access Code');
     }
+ };
+
+ const handleCancelSubscription = () => {
+    // Generate mailto link
+    const subject = encodeURIComponent(`Subscription Cancellation: ${cancelReason}`);
+    const body = encodeURIComponent(`Reason: ${cancelReason}\n\nAdditional Feedback: ${cancelFeedback}\n\nUser ID: ${currentUser.id}`);
+    window.location.href = `mailto:Feedback@Cavecoredynamics.org?subject=${subject}&body=${body}`;
+    
+    // Simulate local downgrade
+    const downgradedUser = { ...currentUser, tier: UserTier.Free };
+    onUserUpdate(downgradedUser);
+    setShowCancelModal(false);
+    setSelectedPlan(null);
  };
 
  const getFeatures = (tier: string) => {
@@ -154,33 +81,22 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
                 "Standard Ad State (Interstitial Engine)",
                 "Sync Trips Across Devices"
             ];
-        case 'Pro Single':
+        case UserTier.Diamond:
             return [
                 "Zero-Latency / Ad-Free Engine",
-                "Stats for Nerds Mode (Live Telemetry)",
+                "Advanced AI Planners (Smart Budgeting)",
+                "AI Smart Notes",
                 "Persistent Notes Panel (Digital Flight Bag)",
                 "Advanced Swipe Navigation & Scale Engine",
-                "Advanced AI Planners (Smart Budgeting)",
-                "AI Smart Notes"
-            ];
-        case 'Pro Family':
-            return [
-                "All Pro Single Features",
-                "Up to 5 Family Members",
-                "Shared Trip Planning",
+                "Shared Trip Planning (Up to 5 Family Members)",
                 "Family Budget Sync"
             ];
-        case 'Crew Small Enterprises':
+        case UserTier.Professional:
             return [
-                "All Pro Features",
+                "All Diamond Features",
                 "Enterprise Dashboards",
                 "Priority Support",
                 "Crew Badge",
-                "Developer Debug Tools"
-            ];
-        case 'Crew Corporations':
-            return [
-                "All Enterprise Features",
                 "API Integrations",
                 "Dedicated Account Manager",
                 "Custom Deployment"
@@ -207,7 +123,7 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
             <div className="text-white/90 transform group-hover:scale-110 transition-transform duration-300">{icon}</div>
         </div>
         {/* Shimmer Effect for Gold/Crew */}
-        {(tier === UserTier.Pro || tier === UserTier.Crew) && <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/20 to-transparent skew-x-12 animate-shimmer pointer-events-none"></div>}
+        {(tier === UserTier.Diamond || tier === UserTier.Professional) && <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/20 to-transparent skew-x-12 animate-shimmer pointer-events-none"></div>}
     </div>
  );
 
@@ -216,7 +132,7 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
      {/* Tab Navigation */}
      <div className="px-6 pt-2 pb-4">
          <div className="flex p-1 bg-gray-200 dark:bg-white/5 rounded-xl border border-gray-300 dark:border-white/10">
-            <button onClick={() => setActiveTab('access')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${activeTab === 'access' ? 'bg-white dark:bg-[#151921] text-brand-orange shadow' : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}><CreditCard size={14}/> Plans</button>
+            <button onClick={() => setActiveTab('access')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${activeTab === 'access' ? 'bg-white dark:bg-[#151921] text-brand-orange shadow' : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}><CreditCard size={14}/> Subscriptions</button>
             <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${activeTab === 'settings' ? 'bg-white dark:bg-[#151921] text-brand-orange shadow' : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}><Settings size={14}/> Settings</button>
             <button onClick={() => setActiveTab('info')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${activeTab === 'info' ? 'bg-white dark:bg-[#151921] text-brand-orange shadow' : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}`}><FileText size={14}/> Info</button>
          </div>
@@ -229,7 +145,7 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
                  {/* Current User Header */}
                  <div className="flex items-center justify-between">
                      <div>
-                         <h2 className="text-xl font-bold text-gray-900 dark:text-white">Your Wallet</h2>
+                         <h2 className="text-xl font-bold text-gray-900 dark:text-white">Your Subscriptions</h2>
                          <p className="text-xs text-gray-500">Current Status: <span className="text-brand-orange font-bold uppercase">{currentUser.tier}</span></p>
                      </div>
                      {currentUser.tier !== UserTier.Guest ? (
@@ -244,11 +160,11 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
                      {renderCard(UserTier.Guest, "BRONZE", "Guest", "bg-gradient-to-br from-[#CD7F32] to-[#8B4513]", <Shield size={32} />, currentUser.tier === UserTier.Guest)}
                      {renderCard(UserTier.Free, "SILVER", "Standard", "bg-gradient-to-br from-[#C0C0C0] to-[#708090]", <User size={32} />, currentUser.tier === UserTier.Free)}
 
-                     {/* Diamond Pro Modal Trigger */}
-                     {renderCard('Diamond', "DIAMOND", "Diamond", "bg-gradient-to-br from-[#E0FFFF] via-[#8DE2FF] to-[#3AB0FF]", <Star size={32} fill="white" />, currentUser.tier === UserTier.Pro)}
+                     {/* Diamond Unified Modal Trigger */}
+                     {renderCard(UserTier.Diamond, "DIAMOND", "Diamond", "bg-gradient-to-br from-[#E0FFFF] via-[#8DE2FF] to-[#3AB0FF]", <Star size={32} fill="white" />, currentUser.tier === UserTier.Diamond)}
 
-                     {/* Professional Markdown Trigger */}
-                     {renderCard('ProfessionalDocs', "PROFESSIONAL", "Professional", "bg-gradient-to-br from-[#9D50BB] to-[#6E48AA]", <Crown size={32} />, currentUser.tier === UserTier.Crew)}
+                     {/* Professional Trigger */}
+                     {renderCard(UserTier.Professional, "PROFESSIONAL", "Professional", "bg-gradient-to-br from-[#9D50BB] to-[#6E48AA]", <Crown size={32} />, currentUser.tier === UserTier.Professional)}
                  </div>
 
                  {/* Access Code Input */}
@@ -278,6 +194,21 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">App Preferences</h2>
                  
                  <div className="bg-white dark:bg-[#151921] p-4 rounded-2xl border border-gray-200 dark:border-white/10 space-y-4 shadow-sm">
+                     
+                     <div className="flex justify-between items-center pb-4 border-b border-gray-200 dark:border-white/10">
+                        <div className="flex items-center gap-2 text-gray-700 dark:text-white"><Globe size={18}/><span className="text-sm font-bold">Language</span></div>
+                        <select 
+                            value={language}
+                            onChange={(e) => setLanguage(e.target.value as any)}
+                            className="bg-gray-100 dark:bg-black/20 text-gray-900 dark:text-white border border-gray-200 dark:border-white/10 rounded-lg px-3 py-1.5 text-sm font-bold outline-none focus:border-brand-orange"
+                        >
+                            <option value="en">English</option>
+                            <option value="es">Español</option>
+                            <option value="fr">Français</option>
+                            <option value="de">Deutsch</option>
+                            <option value="zh">中文</option>
+                        </select>
+                     </div>
 
                      <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2 text-gray-700 dark:text-white"><Type size={18}/><span className="text-sm font-bold">Text Size</span></div>
@@ -287,25 +218,8 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
                             <button onClick={() => onTextSizeChange('lg')} className={`px-3 py-1 rounded-md text-lg font-bold transition ${textSize === 'lg' ? 'bg-white dark:bg-white/10 text-brand-orange shadow' : 'text-gray-400'}`}>A</button>
                         </div>
                     </div>
-                     <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2 text-gray-700 dark:text-white"><Gauge size={18}/><span className="text-sm font-bold">Stats for Nerds</span></div>
-                        <button 
-                            onClick={() => {
-                                if (currentUser.tier === UserTier.Pro || currentUser.tier === UserTier.Crew || currentUser.tier === UserTier.Dev) {
-                                    const next = !statsNerd;
-                                    setStatsNerd(next);
-                                    setStatsForNerds(next);
-                                } else {
-                                    alert("Stats for Nerds requires Diamond, Professional, or Dev tier.");
-                                }
-                            }}
-                            className={`w-12 h-6 rounded-full transition-colors relative ${statsNerd ? 'bg-brand-orange' : 'bg-gray-300 dark:bg-white/20'}`}
-                        >
-                            <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${statsNerd ? 'translate-x-6' : 'translate-x-0'}`}></div>
-                        </button>
-                    </div>
                 </div>
-                
+
                 {/* Admin Settings Panel */}
                 {currentUser.tier === UserTier.Dev && (
                     <div className="mt-8 space-y-4">
@@ -345,14 +259,19 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
          {/* TAB 3: INFO */}
          {activeTab === 'info' && (
              <div className="space-y-6">
-                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">Info & Credits</h2>
+                 <div className="flex justify-between items-center mb-6">
+                     <h2 className="text-xl font-bold text-gray-900 dark:text-white">Info & Credits</h2>
+                     <div className="bg-brand-orange/10 text-brand-orange px-3 py-1 rounded-full text-xs font-bold border border-brand-orange/30 shadow-sm">
+                         Version 1.2
+                     </div>
+                 </div>
 
                  {/* Crew Bios */}
                  <div className="bg-white dark:bg-[#151921] p-5 rounded-2xl border border-gray-200 dark:border-white/10 text-left shadow-lg">
                     <h3 className="font-bold text-brand-orange mb-4 flex items-center gap-2"><Info size={16} /> The Crew</h3>
                     <div className="space-y-4 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
-                      <p>An organizational Psychologist with years of experience in Professional Travel, ensuring your journey is stress-free.</p>
-                      <p>Followed by a young Techie and Business Buff that loves to turn imagination into the real world, building the systems that guide you.</p>
+                      <p>Founded by the visionaries at <strong>CaveCoreDynamics</strong>—architects of next-generation aerospace telemetry, advanced AI systems, and industry-disrupting software.</p>
+                      <p>Driven by a mission to turn imagination into reality, the CCD Founders built ÜrTC to completely reshape the future of global travel and logistics.</p>
                       <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-white/10">
                         <div className="mt-1 w-2 h-2 rounded-full bg-brand-orange shrink-0"></div>
                         <div><strong className="text-gray-900 dark:text-white block">Apollo AI</strong><span className="text-gray-500 dark:text-gray-400 text-xs">The friendly Companion that can help with everything for travel. 🐶</span></div>
@@ -387,22 +306,65 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
                     </div>
 
                     <div className="pt-4 border-t border-gray-200 dark:border-white/10 text-[10px] opacity-70">
-                        <p>© 2025 Cave Core Dynamics™. All rights reserved.</p>
+                        <p>© 2026 Cave Core Dynamics™. All rights reserved.</p>
                     </div>
                 </div>
              </div>
          )}
      </div>
 
+     {/* CANCEL SUBSCRIPTION MODAL */}
+     {showCancelModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-full max-w-md bg-[#151921] border border-red-500/30 rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+                <div className="p-6 border-b border-white/10 relative">
+                    <button onClick={() => setShowCancelModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white transition"><X size={20}/></button>
+                    <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2"><AlertTriangle className="text-red-500" /> Cancel Subscription</h3>
+                    <p className="text-xs text-gray-400">We're sorry to see you go. Please let us know why you are cancelling.</p>
+                </div>
+                <div className="p-6 space-y-4">
+                    <div className="space-y-2">
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Reason for Cancellation</label>
+                        <select 
+                            value={cancelReason}
+                            onChange={(e) => setCancelReason(e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-red-500 transition-colors"
+                        >
+                            <option value="Too expensive">Too expensive</option>
+                            <option value="Not traveling enough">Not traveling enough right now</option>
+                            <option value="Missing features">Missing features I need</option>
+                            <option value="Found a better alternative">Found a better alternative</option>
+                            <option value="Technical issues/Bugs">Technical issues / Bugs</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Additional Feedback</label>
+                        <textarea 
+                            value={cancelFeedback}
+                            onChange={(e) => setCancelFeedback(e.target.value)}
+                            placeholder="Help us improve ÜrTC..."
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-red-500 transition-colors h-24 resize-none"
+                        ></textarea>
+                    </div>
+                </div>
+                <div className="p-4 bg-white/5 flex gap-3">
+                    <button onClick={() => setShowCancelModal(false)} className="flex-1 py-3 bg-white/10 text-white rounded-xl font-bold text-sm hover:bg-white/20 transition">Keep My Plan</button>
+                    <button onClick={handleCancelSubscription} className="flex-1 py-3 bg-red-500/20 text-red-500 rounded-xl font-bold text-sm hover:bg-red-500 hover:text-white transition">Cancel & Submit</button>
+                </div>
+            </div>
+        </div>
+     )}
+
      {/* PLAN DETAILS MODAL */}
-     {selectedPlan && selectedPlan !== 'Gold' && selectedPlan !== 'CrewDocs' && (
+     {selectedPlan && (
          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
              <div className="w-full max-w-sm bg-[#151921] border border-white/20 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
                 <div className="p-6 pb-2 relative">
                     <button onClick={() => setSelectedPlan(null)} className="absolute top-4 right-4 p-2 bg-white/5 rounded-full text-gray-400 hover:text-white transition"><X size={20}/></button>
                     <h3 className="text-3xl font-black italic tracking-tighter text-white mb-1">{selectedPlan}</h3>
                     <p className="text-gray-400 text-sm font-bold uppercase tracking-widest">
-                        {selectedPlan.includes('Pro') ? "Premium" : selectedPlan.includes('Crew') ? "Enterprise" : "Standard"}
+                        {selectedPlan === UserTier.Diamond ? "Premium" : selectedPlan === UserTier.Professional ? "Enterprise" : "Standard"}
                     </p>
                 </div>
 
@@ -415,19 +377,36 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
                             </li>
                         ))}
                     </ul>
+
+                    {/* Diamond Tier Pricing Options */}
+                    {selectedPlan === UserTier.Diamond && (
+                        <div className="mt-6 space-y-2 border-t border-white/10 pt-4">
+                            <h4 className="text-sm font-bold text-white mb-2">Choose your billing cycle:</h4>
+                            <a href="https://buy.stripe.com/3cIaEZcrV6NY4MadX87IY06" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-center text-white text-sm font-bold transition">Weekly: $4.99/wk</a>
+                            <a href="https://buy.stripe.com/3cIbJ3dvZ4FQceCaKW7IY00" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-brand-orange/50 rounded-xl text-center text-white text-sm font-bold shadow-[0_0_15px_rgba(255,92,26,0.2)] transition">Monthly: $13.99/mo (Recommended)</a>
+                            <a href="https://buy.stripe.com/6oUcN70JdgoyguS8CO7IY05" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-center text-white text-sm font-bold transition">Annually: $129.99/yr</a>
+                        </div>
+                    )}
                 </div>
 
                 <div className="p-4 bg-white/5 border-t border-white/10">
                     {currentUser.tier === selectedPlan ? (
-                        <button className="w-full py-3 bg-white/10 text-white/50 rounded-xl font-bold cursor-default flex items-center justify-center gap-2">
-                            <CheckCircle size={16} /> Current Plan
-                        </button>
-                    ) : (
-                        selectedPlan.includes('Diamond') ? (
-                            <button onClick={() => setShowStripe(true)} className="w-full py-3 bg-gradient-to-r from-brand-orange to-red-500 text-white rounded-xl font-bold shadow-lg shadow-brand-orange/20 hover:scale-[1.02] active:scale-[0.98] transition flex items-center justify-center gap-2">
-                                Subscribe for {selectedPlan === 'Diamond Single' ? '$13.99' : '$22.99'}/mo <ArrowRight size={16} />
+                        <div className="space-y-3">
+                            <button className="w-full py-3 bg-brand-orange/20 text-brand-orange rounded-xl font-bold cursor-default flex items-center justify-center gap-2 border border-brand-orange/30">
+                                <CheckCircle size={16} /> Current Plan
                             </button>
-                        ) : selectedPlan.includes('Professional') ? (
+                            {/* Upgrade / Cancel options if they are on a paid tier */}
+                            {(selectedPlan === UserTier.Diamond || selectedPlan === UserTier.Professional) && (
+                                <div className="flex gap-2">
+                                    <button onClick={() => {}} className="flex-1 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold transition">Change Plan</button>
+                                    <button onClick={() => setShowCancelModal(true)} className="flex-1 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded-lg text-xs font-bold transition">Cancel Plan</button>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        selectedPlan === UserTier.Diamond ? (
+                            <p className="text-xs text-center text-gray-500">Select a billing cycle above to subscribe securely via Stripe.</p>
+                        ) : selectedPlan === UserTier.Professional ? (
                             <a href="mailto:sales@cavecoredynamics.org" className="w-full py-3 bg-[#635BFF] hover:bg-[#5851E5] text-white rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2">
                                 Contact Sales <ArrowRight size={16} />
                             </a>
@@ -443,146 +422,6 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
                     )}
                 </div>
              </div>
-         </div>
-     )}
-
-     {/* DIAMOND SUB-SELECTION MODAL */}
-     {selectedPlan === 'Diamond' && (
-         <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-              <div className="w-full max-w-md bg-[#151921] border border-[#8DE2FF]/30 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
-                 <div className="p-6 pb-4 relative border-b border-white/10">
-                     <button onClick={() => setSelectedPlan(null)} className="absolute top-4 right-4 p-2 bg-white/5 rounded-full text-gray-400 hover:text-white transition"><X size={20}/></button>
-                     <h3 className="text-3xl font-black italic tracking-tighter text-[#8DE2FF] mb-1">DIAMOND</h3>
-                     <p className="text-gray-400 text-sm font-bold uppercase tracking-widest">Select Your Service (with applicable taxes to each tier in Diamond)</p>
-                 </div>
-                 <div className="p-6 space-y-4 overflow-y-auto">
-                     <div 
-                         onClick={() => setSelectedPlan('Diamond Single')}
-                         className="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-[#8DE2FF]/50 rounded-2xl p-5 cursor-pointer transition group"
-                     >
-                         <h4 className="text-xl font-bold text-white mb-1 flex items-center justify-between">Diamond Single <span className="text-brand-orange text-sm group-hover:scale-105 transition">$13.99/mo</span></h4>
-                         <p className="text-[10px] text-gray-500 mb-2 font-bold tracking-widest uppercase">Or $350 Lifetime</p>
-                         <p className="text-xs text-gray-400 mb-3">A premium, ad-free flight experience with Apollo as your personal, hyper-focused co-pilot.</p>
-                         <ul className="text-xs text-gray-300 space-y-1">
-                             <li>• Lightning-fast, ad-free tracking</li>
-                             <li>• Deep-dive flight analytics (Stats for Nerds)</li>
-                             <li>• Digital flight bag for your personal notes</li>
-                         </ul>
-                     </div>
-                     <div 
-                         onClick={() => setSelectedPlan('Diamond Family')}
-                         className="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-[#8DE2FF]/50 rounded-2xl p-5 cursor-pointer transition group"
-                     >
-                         <h4 className="text-xl font-bold text-white mb-1 flex items-center justify-between">Diamond Family <span className="text-brand-orange text-sm group-hover:scale-105 transition">$22.99/mo</span></h4>
-                         <p className="text-[10px] text-gray-500 mb-2 font-bold tracking-widest uppercase">Or $248.88/Year</p>
-                         <p className="text-xs text-gray-400 mb-3">Perfect for packs! Keep up to 5 travelers synced on the same journey without breaking a sweat.</p>
-                         <ul className="text-xs text-gray-300 space-y-1">
-                             <li>• Everything in Diamond Single</li>
-                             <li>• Link up to 5 family members (the whole pack)</li>
-                             <li>• Shared itineraries & budget syncing</li>
-                         </ul>
-                     </div>
-                 </div>
-              </div>
-         </div>
-     )}
-
-     {/* PROFESSIONAL MARKDOWN MODAL */}
-     {selectedPlan === 'ProfessionalDocs' && (
-         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 md:p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-              <div className="w-full max-w-2xl bg-[#0f1115] border border-[#9D50BB]/30 rounded-3xl overflow-hidden shadow-2xl flex flex-col h-[85vh]">
-                 <div className="p-4 md:p-6 pb-4 relative border-b border-white/10 bg-[#151921]">
-                     <button onClick={() => setSelectedPlan(null)} className="absolute top-4 right-4 p-2 bg-white/5 rounded-full text-gray-400 hover:text-white transition"><X size={20}/></button>
-                     <h3 className="text-2xl md:text-3xl font-black italic tracking-tighter text-[#9D50BB] mb-1">PROFESSIONAL ACCESS</h3>
-                     <p className="text-gray-400 text-xs md:text-sm font-bold uppercase tracking-widest font-mono">Service_Overview.md</p>
-                 </div>
-                 <div className="flex-1 overflow-y-auto p-4 md:p-6 text-sm text-gray-300 font-mono space-y-4 leading-relaxed selection:bg-[#9D50BB]/30">
-                     <p className="text-[#9D50BB] font-bold"># ürTC™ (Travel Evolved) — Subscription & Service Architecture</p>
-                     <p><span className="text-gray-500">Parent Entity:</span> CaveCore Dynamics LLC (CCD)</p>
-                     
-                     <div className="h-px bg-white/10 my-4" />
-                     
-                     <p className="text-white font-bold">3. Professional Access (Enterprise & Pack Networks)</p>
-                     <p className="text-xs text-gray-400 italic">The ultimate command center for active flight crews, large travel packs, and enterprise coordinators.</p>
-                     
-                     <p><span className="text-[#9D50BB] font-bold">Core Purpose:</span> Keeps everyone's itineraries, budgets, and live flight tracking perfectly synchronized, with Apollo fetching the latest updates.</p>
-
-                     <p className="text-white font-bold mt-6 mb-2">Key Features & Capabilities:</p>
-                     
-                     <ul className="space-y-3">
-                         <li><strong className="text-brand-orange">Pack Synchronization:</strong> Connects your whole crew under a single subscription. Apollo seamlessly fetches and merges everyone's boarding passes, budgets, and itineraries in real-time.</li>
-                         <li><strong className="text-brand-orange">ApolloLive (Voice Mode):</strong> Unlocks Apollo's real-time voice assistance. Just speak, and your trusty co-pilot will fetch flight deck updates completely hands-free.</li>
-                         <li><strong className="text-brand-orange">Dynamic Process Island:</strong> A persistent heads-up display. Apollo keeps a watchful eye on delays, gate changes, and airtime, always staying one step ahead.</li>
-                         <li><strong className="text-brand-orange">Global Airspace Telemetry:</strong> Full access to live radar, tracking every waypoint, latitude, and heading like a bloodhound.</li>
-                     </ul>
-
-                     <div className="h-px bg-white/10 my-6" />
-
-                     {currentUser.tier === UserTier.Dev ? (
-                         <>
-                             <p className="text-white font-bold">Pricing Tiers:</p>
-                             <div className="flex flex-col sm:flex-row gap-4 mt-2">
-                         <div className="bg-white/5 p-4 rounded-xl border border-white/10 flex-1">
-                             <p className="font-bold text-[#9D50BB]">Crew Tools – Small Businesses</p>
-                             <p className="text-[10px] text-gray-500 mb-2 font-bold tracking-widest uppercase">1–25 Members</p>
-                             <p className="text-xl text-white font-black my-1">$524.25<span className="text-xs text-gray-500 font-normal">/Month</span></p>
-                             <p className="text-[10px] text-gray-500 mb-2 font-bold tracking-widest uppercase">Or $5,352.75/Year</p>
-                             <button onClick={() => { setContactSubject("Small Business Inquiry"); setShowContactForm(true); setContactSent(false); }} className="text-xs bg-[#9D50BB] text-white px-3 py-1.5 rounded-lg inline-block mt-2 hover:bg-[#8644a0]">Contact Sales</button>
-                         </div>
-                         <div className="bg-white/5 p-4 rounded-xl border border-white/10 flex-1">
-                             <p className="font-bold text-[#9D50BB]">Crew Tools – Corporations</p>
-                             <p className="text-[10px] text-gray-500 mb-2 font-bold tracking-widest uppercase">25–150+ Members</p>
-                             <p className="text-xl text-white font-black my-1">$3,448.50<span className="text-xs text-gray-500 font-normal">/Month</span></p>
-                             <p className="text-[10px] text-gray-500 mb-2 font-bold tracking-widest uppercase">Or $37,243.80/Year</p>
-                             <button onClick={() => { setContactSubject("Corporate Inquiry"); setShowContactForm(true); setContactSent(false); }} className="text-xs bg-[#9D50BB] text-white px-3 py-1.5 rounded-lg inline-block mt-2 hover:bg-[#8644a0]">Contact Sales</button>
-                         </div>
-                             </div>
-                         </>
-                     ) : (
-                         <div className="mt-4 flex flex-col items-center justify-center p-6 bg-white/5 border border-white/10 rounded-2xl">
-                             <p className="text-white font-bold text-lg mb-2">Enterprise Solutions</p>
-                             <p className="text-gray-400 text-center mb-4">Contact our sales team to discuss custom pricing for your organization.</p>
-                             <button onClick={() => { setContactSubject("Enterprise Inquiry"); setShowContactForm(true); setContactSent(false); }} className="w-full sm:w-auto px-6 py-3 bg-[#9D50BB] text-white rounded-xl font-bold shadow-lg hover:scale-[1.02] active:scale-[0.98] transition">Contact Sales</button>
-                         </div>
-                     )}
-
-                     {/* Inline Contact Form */}
-                     {showContactForm && (
-                         <div className="mt-6 bg-[#151921] p-6 rounded-2xl border border-[#9D50BB]/30 animate-in slide-in-from-bottom-4">
-                             {contactSent ? (
-                                 <div className="text-center py-6">
-                                     <div className="inline-flex bg-green-500/20 text-green-500 p-3 rounded-full mb-3"><CheckCircle size={24} /></div>
-                                     <h4 className="text-lg font-bold text-white">Inquiry Sent</h4>
-                                     <p className="text-sm text-gray-400 mt-2">A CaveCore Dynamics representative will contact you shortly.</p>
-                                     <button onClick={() => { setShowContactForm(false); setContactSent(false); }} className="mt-4 text-xs font-bold text-gray-500 hover:text-white">Close</button>
-                                 </div>
-                             ) : (
-                                 <form onSubmit={(e) => { e.preventDefault(); setContactSent(true); }} className="space-y-4">
-                                     <div className="flex items-center justify-between mb-2">
-                                         <h4 className="font-bold text-[#9D50BB]">Contact CaveCore Sales</h4>
-                                         <button type="button" onClick={() => setShowContactForm(false)} className="text-gray-500 hover:text-white"><X size={16} /></button>
-                                     </div>
-                                     <div className="space-y-1">
-                                         <label className="text-[10px] uppercase font-bold text-gray-500">Email Address</label>
-                                         <input required type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="coordinator@airline.com" className="w-full bg-white/5 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-[#9D50BB] transition-colors" />
-                                     </div>
-                                     <div className="space-y-1">
-                                         <label className="text-[10px] uppercase font-bold text-gray-500">Subject</label>
-                                         <select value={contactSubject} onChange={e => setContactSubject(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-[#9D50BB] appearance-none transition-colors">
-                                             <option value="Small Business Inquiry">Small Business Inquiry (1-25 Seats)</option>
-                                             <option value="Corporate Inquiry">Corporate Inquiry (25-150+ Seats)</option>
-                                             <option value="Other Enterprise Request">Other Enterprise Request</option>
-                                         </select>
-                                     </div>
-                                     <button type="submit" className="w-full py-3 bg-[#9D50BB] hover:bg-[#8644a0] text-white rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 mt-2">
-                                         Send Inquiry <ArrowRight size={16} />
-                                     </button>
-                                 </form>
-                             )}
-                         </div>
-                     )}
-                 </div>
-              </div>
          </div>
      )}
 
@@ -602,39 +441,6 @@ export const AboutView: React.FC<AboutViewProps> = ({ currentUser, onUserUpdate,
              </div>
          </div>
      )}
-
-     {/* Stripe Checkout Mock */}
-     {showStripe && (
-         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-             <div className="w-full max-w-sm bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-3xl p-6 shadow-2xl relative">
-                 <button onClick={() => setShowStripe(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20}/></button>
-                 <div className="flex items-center gap-2 text-[#635BFF] mb-4">
-                     <CreditCard size={24} />
-                     <span className="font-bold text-lg tracking-tight">Stripe Checkout</span>
-                     <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full ml-auto uppercase">LIVE MODE</span>
-                 </div>
-                 
-                 <p className="text-sm font-bold text-gray-900 dark:text-white mb-6">Upgrade to {selectedPlan} - {selectedPlan === 'Diamond Single' ? '$13.99' : '$22.99'}/month</p>
-                 
-                 <Elements stripe={stripePromise}>
-                     <CheckoutForm 
-                         selectedPlan={selectedPlan}
-                         stripeEmail={stripeEmail}
-                         setStripeEmail={setStripeEmail}
-                         onSuccess={async () => {
-                             await updateUserTier(currentUser.id, UserTier.Pro);
-                             onUserUpdate({...currentUser, tier: UserTier.Pro});
-                             setShowStripe(false);
-                             setSelectedPlan(null);
-                         }}
-                     />
-                 </Elements>
-                 
-                 <p className="text-center text-[10px] text-gray-400 mt-4 flex items-center justify-center gap-1"><Lock size={10} /> Secure payment by Stripe</p>
-             </div>
-         </div>
-     )}
-
    </div>
  );
-};
+});

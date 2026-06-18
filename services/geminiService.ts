@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
-import { NewsArticle } from "../types";
+import { NewsArticle, Flight } from "../types";
 
 import { API_KEYS } from "../config";
 
@@ -13,6 +13,9 @@ const getClient = () => {
     return aiClient;
 };
 
+import { getActiveUser } from './authService';
+import { fetchTrips } from './tripService';
+
 export const streamApolloResponse = async (
     userMessage: string,
     history: { role: string; parts: { text: string }[] }[],
@@ -23,6 +26,21 @@ export const streamApolloResponse = async (
         onChunk("Woof! My connection's a bit ruff (API Key missing).");
         return;
     }
+
+    let tripsContext = "The user has no trips currently planned.";
+    try {
+        const user = getActiveUser();
+        if (user && user.id) {
+            const trips = await fetchTrips(user.id);
+            if (trips && trips.length > 0) {
+                tripsContext = `The user has ${trips.length} trips. Context: ` + JSON.stringify(trips.map(t => ({
+                    name: t.name,
+                    flights: (t.flights || []).map((f: any) => `${f.airline} ${f.flight_number} to ${f.arrival_airport}`),
+                    budget: (t.budget_categories || []).reduce((a: number, c: any) => a + (c.planned || 0), 0)
+                })));
+            }
+        }
+    } catch (e) { console.error("Failed to load trips context", e); }
 
     try {
         const model = client.models;
@@ -46,6 +64,10 @@ export const streamApolloResponse = async (
        - **Pro Tier**: AI Predictions, Live Voice Mode, Smart Budgeting.
        - **Crew Tier**: Dev access.
 
+       USER CONTEXT:
+       ${tripsContext}
+       When asked for estimates, ensure pricing data is as accurate as possible.
+       
        If the user vents, be a good listener.
        If asked about yourself, say you're a good boy who loves aviation.`,
                 tools: [{ googleSearch: {} }, { googleMaps: {} }]
@@ -121,17 +143,25 @@ export const getBudgetPlan = async (destination: string, days: number, travelers
     }
 };
 
-export const generateAiNote = async (city: string, stateCountry: string, tripName: string) => {
+export const generateAiNote = async (trip: any) => {
     const client = getClient();
     if (!client) return null;
     try {
+        const flightsStr = trip.flights?.map((f: any) => `${f.arrival_airport || 'TBD'}`).join(', ') || 'Unknown destinations';
+        const totalBudget = (trip.budget_categories || []).reduce((acc: number, curr: any) => acc + (curr.planned || 0), 0);
+        const budgetDetails = (trip.budget_categories || []).map((b: any) => `${b.label}: $${b.planned}`).join(', ');
+
         const response = await client.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: [{
                 role: 'user',
                 parts: [{
-                    text: `Generate a helpful, creative, and concise travel note for a trip to ${city}, ${stateCountry} (Trip Name: ${tripName}). 
-                    Return a JSON object with two fields: "title" (a catchy header) and "content" (a 3-4 sentence useful tip, itinerary idea, or cultural insight).`
+                    text: `Generate a helpful, creative, and cute travel insight for the trip "${trip.name}".
+                    Destinations involved: ${flightsStr}.
+                    Total Budget: $${totalBudget}.
+                    Budget Breakdown: ${budgetDetails || 'None yet'}.
+                    
+                    Return a JSON object with two fields: "title" (a catchy header) and "content" (a 3-4 sentence useful tip about places to save money, a cute insight about the destination, or budget optimization advice based on their spending).`
                 }]
             }],
             config: { responseMimeType: "application/json" }
@@ -162,5 +192,101 @@ export const generateSpeech = async (text: string): Promise<string | null> => {
     } catch (e) {
         console.error("TTS Error:", e);
         return null;
+    }
+};
+
+export const generateTripStory = async (trip: any): Promise<string | null> => {
+    const client = getClient();
+    if (!client) return null;
+    try {
+        const flightsStr = trip.flights?.map((f: any) => `${f.airline} ${f.flight_number} on ${f.flight_date} from ${f.departure_airport || 'TBD'} to ${f.arrival_airport || 'TBD'}`).join(', ') || 'No flights booked yet.';
+        
+        const response = await client.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [{
+                role: 'user',
+                parts: [{
+                    text: `You are Apollo, a creative travel AI. Write a detailed, story-like summary for a trip named "${trip.name}". 
+                    
+Here are the trip details:
+- Flights: ${flightsStr}
+- Budget Items Count: ${trip.budget_categories?.length || 0}
+- Notes Count: ${trip.notes?.length || 0}
+
+Write a beautiful, exciting 3-4 paragraph narrative about this upcoming journey, formatted in Markdown. Include some tailored advice based on the destinations if known. Be very descriptive and paint a picture of the experience.`
+                }]
+            }]
+        });
+        return response.text || null;
+    } catch (e) {
+        console.error("Trip Story Error", e);
+        return null;
+    }
+};
+
+export const fetchFutureFlightFromGemini = async (flightNumber: string, date: string): Promise<Flight[]> => {
+    const client = getClient();
+    if (!client) return [];
+    try {
+        const response = await client.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [{
+                role: 'user',
+                parts: [{
+                    text: `Use Google Search to find the flight schedule for ${flightNumber} on or around ${date}. 
+                    If it's too far in the future, predict it based on standard daily schedules. 
+                    Return a single JSON object (NOT an array) representing the flight with these exact keys:
+                    "ident": "${flightNumber}",
+                    "airline": "Name of Airline",
+                    "departureAirport": "Origin Airport Code (e.g. ATL)",
+                    "arrivalAirport": "Destination Airport Code",
+                    "departureTime": "ISO 8601 string for departure on ${date}",
+                    "arrivalTime": "ISO 8601 string for arrival",
+                    "aircraft": "Aircraft type if known, or 'TBD'"
+                    Do not use markdown blocks, return RAW JSON.`
+                }]
+            }],
+            config: { responseMimeType: "application/json" }
+        });
+
+        let text = response.text || "";
+        if (!text) return [];
+        text = text.replace(/```(?:json)?/gi, '').trim();
+        const f = JSON.parse(text);
+        
+        let durationMinutes: number | null = null;
+        if (f.departureTime && f.arrivalTime) {
+            const dep = new Date(f.departureTime).getTime();
+            const arr = new Date(f.arrivalTime).getTime();
+            if (arr > dep) durationMinutes = Math.round((arr - dep) / 60000);
+        }
+
+        const flight: Flight = {
+            id: `gemini-${Date.now()}`,
+            ident: f.ident || flightNumber,
+            flightNumber: f.ident || flightNumber,
+            airline: f.airline || "Unknown",
+            status: "Scheduled (Future)" as any,
+            departureAirport: f.departureAirport || "TBD",
+            arrivalAirport: f.arrivalAirport || "TBD",
+            departureTime: f.departureTime || "",
+            arrivalTime: f.arrivalTime || "",
+            estimatedDepartureTime: "",
+            actualDepartureTime: "",
+            estimatedArrivalTime: "",
+            actualArrivalTime: "",
+            gate: "",
+            terminal: "",
+            gateDestination: "",
+            terminalDestination: "",
+            aircraft: f.aircraft || "TBD",
+            progress: 0,
+            delayMinutes: 0,
+            durationMinutes
+        };
+        return [flight];
+    } catch (e) {
+        console.error("Future Flight Gemini Error:", e);
+        return [];
     }
 };

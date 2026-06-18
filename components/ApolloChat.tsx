@@ -91,7 +91,7 @@ export const ApolloChat: React.FC<ApolloChatProps> = ({ isOpen, onClose }) => {
   };
 
   const handleSend = async (textOverride?: string) => {
-    if (limitReached && user.tier !== UserTier.Pro && user.tier !== UserTier.Crew) return;
+    if (limitReached && user.tier !== UserTier.Diamond && user.tier !== UserTier.Professional) return;
 
     const textToSend = textOverride || input;
     if (!textToSend.trim() || isThinking) return;

@@ -13,7 +13,7 @@ interface ApolloViewProps {
   onBack?: () => void;
 }
 
-export const ApolloView: React.FC<ApolloViewProps> = ({ userTier, onBack }) => {
+export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onBack }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -83,7 +83,7 @@ export const ApolloView: React.FC<ApolloViewProps> = ({ userTier, onBack }) => {
 
   useEffect(() => {
     if (messages.length > 0) localStorage.setItem('apollo_chat_history', JSON.stringify(messages));
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [messages, isThinking]);
 
   const checkLimits = () => {
@@ -130,7 +130,7 @@ export const ApolloView: React.FC<ApolloViewProps> = ({ userTier, onBack }) => {
   };
 
   const handleSend = async (textOverride?: string) => {
-    if (limitReached && user.tier !== UserTier.Pro && user.tier !== UserTier.Crew) return;
+    if (limitReached && user.tier !== UserTier.Diamond && user.tier !== UserTier.Professional) return;
 
     const textToSend = textOverride || input;
     if (!textToSend.trim() || isThinking) return;
@@ -174,7 +174,7 @@ export const ApolloView: React.FC<ApolloViewProps> = ({ userTier, onBack }) => {
           <div>
             <h2 className="text-xl font-black text-white leading-none">Apollo AI</h2>
             <p className="text-xs text-brand-orange font-bold uppercase tracking-wider flex items-center gap-1">
-              {limitReached ? 'Limit Reached' : (user.tier === UserTier.Pro || user.tier === UserTier.Crew ? 'Unlimited Access' : `${user.tier === UserTier.Guest ? 5 - msgCount : 10 - msgCount} msgs left`)}
+              {limitReached ? 'Limit Reached' : (user.tier === UserTier.Diamond || user.tier === UserTier.Professional ? 'Unlimited Access' : `${user.tier === UserTier.Guest ? 5 - msgCount : 10 - msgCount} msgs left`)}
             </p>
           </div>
         </div>
@@ -204,7 +204,7 @@ export const ApolloView: React.FC<ApolloViewProps> = ({ userTier, onBack }) => {
         {limitReached && (
           <div className="text-center p-4 bg-white/5 rounded-xl border border-white/10 mx-4">
             <p className="text-red-400 font-bold text-sm">Daily Message Limit Reached</p>
-            <p className="text-gray-500 text-xs mt-1">Upgrade to Pro in About &gt; Plans to continue.</p>
+            <p className="text-gray-500 text-xs mt-1">Upgrade to Diamond in About &gt; Subscriptions to continue.</p>
           </div>
         )}
 
@@ -221,11 +221,11 @@ export const ApolloView: React.FC<ApolloViewProps> = ({ userTier, onBack }) => {
         </div>
 
         {/* Input */}
-        <div className="flex gap-2 items-center bg-black/40 border border-white/10 rounded-2xl px-2 py-2 focus-within:border-brand-orange/50 transition-colors shadow-lg">
+        <div id="tour-apollo-chat" className="flex gap-2 items-center bg-black/40 border border-white/10 rounded-2xl px-2 py-2 focus-within:border-brand-orange/50 transition-colors shadow-lg">
           <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder={limitReached ? "Daily limit reached." : "Ask about trips, money, or life..."} disabled={isThinking || limitReached} className="flex-1 bg-transparent px-4 py-2 text-white placeholder-gray-500 focus:outline-none disabled:opacity-50" />
           <button onClick={() => handleSend()} disabled={!input.trim() || isThinking || limitReached} className="p-3 bg-brand-orange text-white rounded-xl disabled:opacity-50 hover:bg-orange-600 transition shadow-lg"><Send size={18} /></button>
         </div>
       </div>
     </div>
   );
-};
+});

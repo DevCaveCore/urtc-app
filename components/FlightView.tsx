@@ -1,14 +1,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Plane, Clock, AlertTriangle, Loader2, X, ArrowRight, ArrowLeftRight, ExternalLink, MapPin, Calendar, Search, Radar, Globe, CheckCircle, Navigation, Gauge, Hash, LayoutGrid } from 'lucide-react';
-import { Flight, FlightStatus, BudgetItem, UserTier, FlightSchedule, AirportConditions } from '../types';
+import { Plane, Clock, AlertTriangle, Loader2, X, ArrowRight, ArrowLeftRight, ExternalLink, MapPin, Calendar, Search, Radar, Globe, CheckCircle, Navigation, Gauge, Hash, LayoutGrid, PlusCircle, Info } from 'lucide-react';
+import { Flight, FlightStatus, BudgetItem, UserTier, FlightSchedule, AirportConditions, UserAccount, Trip } from '../types';
 import { fetchRealFlights, fetchFlightTrack, fetchSchedules, fetchAirportConditions, fetchRandomFlight } from '../services/apiService';
+import { fetchTrips, addFlightToTrip } from '../services/tripService';
 import { getAirportSuggestions, getAirportCoords, getAirlineSuggestions } from '../services/mockService';
 import { getStatsForNerds } from '../services/authService';
 
 interface FlightViewProps {
-    onAddToBudget: (item: BudgetItem) => void;
-    userTier?: UserTier;
+    user: UserAccount;
     onViewCity?: (city: string) => void;
     onTrackFlight?: (flight: Flight) => void;
 }
@@ -73,7 +73,42 @@ const FlightSkeleton: React.FC = () => (
     </div>
 );
 
-export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier, onViewCity, onTrackFlight }) => {
+export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewCity, onTrackFlight }) => {
+    const [trips, setTrips] = useState<Trip[]>([]);
+    const [isSavingToTrip, setIsSavingToTrip] = useState<Flight | null>(null);
+    const [isFetchingTrips, setIsFetchingTrips] = useState(false);
+
+    const handleOpenSaveDialog = async (flight: Flight) => {
+        if (user.id === 'guest') {
+            alert('Please sign in to save flights to your trips.');
+            return;
+        }
+        setIsSavingToTrip(flight);
+        setIsFetchingTrips(true);
+        const userTrips = await fetchTrips(user.id);
+        setTrips(userTrips);
+        setIsFetchingTrips(false);
+    };
+
+    const handleSaveToTrip = async (tripId: string) => {
+        if (!isSavingToTrip) return;
+        const success = await addFlightToTrip(
+            user.id,
+            tripId,
+            isSavingToTrip.flightNumber,
+            isSavingToTrip.departureTime || '',
+            isSavingToTrip.airline,
+            isSavingToTrip.departureAirport,
+            isSavingToTrip.arrivalAirport
+        );
+        if (success) {
+            setIsSavingToTrip(null);
+            alert('Saved successfully!');
+        } else {
+            alert('Failed to save flight. Please try again.');
+        }
+    };
+
     const [flights, setFlights] = useState<Flight[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [originCity, setOriginCity] = useState('');
@@ -81,7 +116,8 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
     const [debouncedOrigin, setDebouncedOrigin] = useState('');
     const [debouncedDest, setDebouncedDest] = useState('');
     const [debouncedQuery, setDebouncedQuery] = useState('');
-    const [flightDate, setFlightDate] = useState('');
+    const [flightDate, setFlightDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [returnDate, setReturnDate] = useState<string>('');
     const [airlineFilter, setAirlineFilter] = useState('ALL');
     const [isLoading, setIsLoading] = useState(false);
     const [hasSearched, setHasSearched] = useState(false);
@@ -148,21 +184,6 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
             setSuggestions([]);
         }
     }, [debouncedOrigin, debouncedDest, debouncedQuery, activeInput]);
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setFlights(prevFlights =>
-                prevFlights.map(f => {
-                    if (f.status === FlightStatus.EnRoute && f.progress < 100) {
-                        const increment = Math.random() * 0.5 + 0.1;
-                        return { ...f, progress: Math.min(f.progress + increment, 100) };
-                    }
-                    return f;
-                })
-            );
-        }, 1000);
-        return () => clearInterval(interval);
-    }, []);
 
     useEffect(() => {
         if (selectedFlight && mapRef.current && window.google) {
@@ -243,7 +264,7 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
                 // Flight number search
                 const query = searchQuery.trim();
                 if (!query) {
-                    setSearchError('Enter a flight number (e.g., DL1182, UA100)');
+                    setSearchError('Enter a flight number (e.g., DAL1182, UAL100)');
                     setIsLoading(false);
                     return;
                 }
@@ -263,9 +284,9 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
                     setIsLoading(false);
                     return;
                 }
-                const query = dCode || oCode;
+                const query = oCode || dCode;
                 const [results, scheds, conds] = await Promise.all([
-                    fetchRealFlights(query, flightDate, airlineFilter),
+                    fetchRealFlights(oCode || dCode, flightDate, airlineFilter, oCode ? dCode : undefined),
                     fetchSchedules(oCode, dCode, flightDate, airlineFilter),
                     oCode ? fetchAirportConditions(oCode) : Promise.resolve(null)
                 ]);
@@ -374,153 +395,228 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
             </div>
 
             {/* Search Bar */}
-            <div className="bg-white dark:bg-brand-surface/90 backdrop-blur-xl p-4 rounded-2xl border border-gray-200 dark:border-white/10 shadow-xl transition-all duration-300 focus-within:shadow-brand-orange/20 focus-within:border-brand-orange/30">
+            <div id="tour-flight-search" className="bg-white dark:bg-brand-surface/90 backdrop-blur-xl p-4 rounded-2xl border border-gray-200 dark:border-white/10 shadow-xl transition-all duration-300 focus-within:shadow-brand-orange/20 focus-within:border-brand-orange/30">
                 {searchMode === 'flight' ? (
-                    /* Flight Number Search */
-                    <div className="flex flex-col sm:flex-row gap-3">
-                        <div className="flex-1 relative">
-                            <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-brand-orange">Flight Number</label>
-                            <input
-                                id="flightQueryInput"
-                                type="text"
-                                placeholder="e.g. DL1182, UA100, AA2345"
-                                className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-orange/50 focus:border-brand-orange transition-all font-bold text-base pt-7"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
-                                onFocus={() => setActiveInput('query')}
-                                onBlur={handleBlur}
-                                onKeyDown={(e) => e.key === 'Enter' && performSearch()}
-                                autoComplete="off"
-                            />
-                            {activeInput === 'query' && suggestions.length > 0 && (
-                                <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
-                                    {suggestions.map(s => (
-                                        <button key={s} onMouseDown={() => applySuggestion(s)} className="w-full text-left px-4 py-3 text-sm font-bold text-gray-900 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 border-b border-gray-200 dark:border-white/5 last:border-0 transition-colors flex items-center gap-2">
-                                            <Plane size={14} className="text-brand-orange" /> {s}
-                                        </button>
-                                    ))}
+                    <>
+                        {/* Flight Number Search */}
+                        <form onSubmit={(e) => { e.preventDefault(); performSearch(); }} className="flex flex-col gap-3">
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                <div className="flex-1 relative min-w-[200px]">
+                                    <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-brand-orange">Flight Number</label>
+                                    <input
+                                        id="flightQueryInput"
+                                        type="text"
+                                        placeholder="e.g. DAL1182, UAL100, AAL2345"
+                                        className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-orange/50 focus:border-brand-orange transition-all font-bold text-base pt-7"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
+                                        onFocus={() => setActiveInput('query')}
+                                        onBlur={handleBlur}
+                                        autoComplete="off"
+                                    />
+                                    {activeInput === 'query' && suggestions.length > 0 && (
+                                        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
+                                            {suggestions.map(s => (
+                                                <button key={s} onMouseDown={() => applySuggestion(s)} className="w-full text-left px-4 py-3 text-sm font-bold text-gray-900 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 border-b border-gray-200 dark:border-white/5 last:border-0 transition-colors flex items-center gap-2">
+                                                    <Plane size={14} className="text-brand-orange" /> {s}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
-                        <div className="flex gap-3">
-                            <div className="relative">
-                                <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">Date (Optional)</label>
-                                <input
-                                    type="date"
-                                    className="w-full bg-gray-50 dark:bg-[#202124] border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-orange/50 focus:border-brand-orange transition-all font-bold text-base pt-7"
-                                    value={flightDate}
-                                    onChange={(e) => setFlightDate(e.target.value)}
-                                />
-                            </div>
-
-                            <button
-                                onClick={performSearch}
-                                disabled={isLoading}
-                                className="bg-gradient-to-r from-brand-orange to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl shadow-lg shadow-brand-orange/30 flex items-center justify-center gap-2 font-bold transition-all hover:scale-[1.03] active:scale-[0.97] px-8 disabled:opacity-50"
-                            >
-                                {isLoading ? <Loader2 className="animate-spin" size={20} /> : <><Search size={20} strokeWidth={3} /> Search</>}
-                            </button>
-                        </div>
-                    </div>
-                ) : (
-                    /* Airport Route Search */
-                    <div className="flex flex-col gap-3">
-                        <div className="flex flex-col sm:flex-row gap-3">
-                            <div className="flex-1 relative">
-                                <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-brand-orange">From</label>
-                                <input
-                                    id="originCityInput"
-                                    type="text"
-                                    placeholder="Airport code"
-                                    className="w-full bg-gray-50 dark:bg-[#202124] border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-orange/50 focus:border-brand-orange transition-all font-bold text-base pt-7"
-                                    value={originCity}
-                                    onChange={(e) => setOriginCity(e.target.value.toUpperCase())}
-                                    onFocus={() => setActiveInput('origin')}
-                                    onBlur={handleBlur}
-                                    autoComplete="off"
-                                />
-                                {activeInput === 'origin' && suggestions.length > 0 && (
-                                    <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
-                                        {suggestions.map(s => (
-                                            <button key={s} onMouseDown={() => applySuggestion(s)} className="w-full text-left px-4 py-3 text-sm font-bold text-gray-900 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 border-b border-gray-200 dark:border-white/5 last:border-0 transition-colors flex items-center gap-2">
-                                                <Plane size={14} className="text-brand-orange" /> {s}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="flex items-center justify-center z-10 -mx-3">
+                                
                                 <button
-                                    onClick={handleSwapAirports}
-                                    className="bg-white dark:bg-[#303134] hover:bg-gray-100 dark:hover:bg-[#3c4043] p-2 rounded-full border border-gray-200 dark:border-white/10 shadow-md text-gray-500 dark:text-gray-300 transition-all hover:scale-110 active:scale-95 group"
+                                    type="submit"
+                                    disabled={isLoading}
+                                    className="bg-gradient-to-r from-brand-orange to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl shadow-lg shadow-brand-orange/30 flex items-center justify-center gap-2 font-bold transition-all hover:scale-[1.03] active:scale-[0.97] px-8 py-3 sm:py-0 disabled:opacity-50 min-w-[120px]"
                                 >
-                                    <ArrowLeftRight size={16} className="group-hover:text-brand-orange transition-colors" />
+                                    {isLoading ? <Loader2 className="animate-spin" size={20} /> : <><Search size={20} strokeWidth={3} /> Search</>}
                                 </button>
                             </div>
+                            
+                            {/* Sleek Dates Row */}
+                            <div className="flex gap-3">
+                                <div className="relative flex-1">
+                                    <label className="absolute left-3 top-1.5 text-[9px] font-bold uppercase tracking-wider text-gray-500">Departure</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-gray-50/50 dark:bg-white/5 border border-gray-200/50 dark:border-white/5 rounded-lg py-2 pl-3 pr-2 text-gray-900 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-orange/50 transition-all text-sm pt-5"
+                                        value={flightDate}
+                                        onChange={(e) => setFlightDate(e.target.value)}
+                                    />
+                                </div>
+                                <div className="relative flex-1">
+                                    <label className="absolute left-3 top-1.5 text-[9px] font-bold uppercase tracking-wider text-gray-500">Return (Opt)</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-gray-50/50 dark:bg-white/5 border border-gray-200/50 dark:border-white/5 rounded-lg py-2 pl-3 pr-2 text-gray-900 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-orange/50 transition-all text-sm pt-5"
+                                        value={returnDate}
+                                        onChange={(e) => setReturnDate(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        </form>
+                        
+                        {/* Disclaimers & Apollo Message */}
+                        <div className="mt-4 space-y-3">
+                            <p className="text-xs text-center text-gray-500 dark:text-white/40 italic px-4">
+                                Live tracking is available up to 3 days in advance. You can search for future flights and live tracking will activate closer to departure!
+                            </p>
+                            <div className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 rounded-xl p-4 flex gap-3 items-start relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-3xl rounded-full"></div>
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg mt-0.5">
+                                    <span className="text-white text-xs font-bold">A</span>
+                                </div>
+                                <div>
+                                    <p className="text-xs font-bold text-indigo-400 dark:text-indigo-300 mb-0.5">Apollo says:</p>
+                                    <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">
+                                        Hey there! We are still working on making the flights feature as advanced as possible. More exciting updates are coming soon in the next version! ✨
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        {/* Airport Route Search */}
+                        <div className="flex flex-col gap-3">
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                <div className="flex-1 relative min-w-[140px]">
+                                    <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-brand-orange">From</label>
+                                    <input
+                                        id="originCityInput"
+                                        type="text"
+                                        placeholder="Code"
+                                        className="w-full bg-gray-50 dark:bg-[#202124] border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-orange/50 focus:border-brand-orange transition-all font-bold text-base pt-7"
+                                        value={originCity}
+                                        onChange={(e) => setOriginCity(e.target.value.toUpperCase())}
+                                        onFocus={() => setActiveInput('origin')}
+                                        onBlur={handleBlur}
+                                        autoComplete="off"
+                                    />
+                                    {activeInput === 'origin' && suggestions.length > 0 && (
+                                        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
+                                            {suggestions.map(s => (
+                                                <button key={s} onMouseDown={() => applySuggestion(s)} className="w-full text-left px-4 py-3 text-sm font-bold text-gray-900 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 border-b border-gray-200 dark:border-white/5 last:border-0 transition-colors flex items-center gap-2">
+                                                    <Plane size={14} className="text-brand-orange" /> {s}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
 
-                            <div className="flex-1 relative">
-                                <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-brand-blue">To</label>
-                                <input
-                                    id="destCityInput"
-                                    type="text"
-                                    placeholder="Airport code"
-                                    className="w-full bg-gray-50 dark:bg-[#202124] border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/50 focus:border-brand-blue transition-all font-bold text-base pt-7"
-                                    value={destCity}
-                                    onChange={(e) => setDestCity(e.target.value.toUpperCase())}
-                                    onFocus={() => setActiveInput('dest')}
-                                    onBlur={handleBlur}
-                                    autoComplete="off"
-                                />
-                                {activeInput === 'dest' && suggestions.length > 0 && (
-                                    <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
-                                        {suggestions.map(s => (
-                                            <button key={s} onMouseDown={() => applySuggestion(s)} className="w-full text-left px-4 py-3 text-sm font-bold text-gray-900 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 border-b border-gray-200 dark:border-white/5 last:border-0 transition-colors flex items-center gap-2">
-                                                <Plane size={14} className="text-brand-blue" /> {s}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
+                                <div className="flex items-center justify-center z-10 -mx-3 py-2 sm:py-0">
+                                    <button
+                                        onClick={handleSwapAirports}
+                                        className="bg-white dark:bg-[#303134] hover:bg-gray-100 dark:hover:bg-[#3c4043] p-2 rounded-full border border-gray-200 dark:border-white/10 shadow-md text-gray-500 dark:text-gray-300 transition-all hover:scale-110 active:scale-95 group"
+                                    >
+                                        <ArrowLeftRight size={16} className="group-hover:text-brand-orange transition-colors" />
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 relative min-w-[140px]">
+                                    <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-brand-blue">To</label>
+                                    <input
+                                        id="destCityInput"
+                                        type="text"
+                                        placeholder="Code"
+                                        className="w-full bg-gray-50 dark:bg-[#202124] border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/50 focus:border-brand-blue transition-all font-bold text-base pt-7"
+                                        value={destCity}
+                                        onChange={(e) => setDestCity(e.target.value.toUpperCase())}
+                                        onFocus={() => setActiveInput('dest')}
+                                        onBlur={handleBlur}
+                                        autoComplete="off"
+                                    />
+                                    {activeInput === 'dest' && suggestions.length > 0 && (
+                                        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
+                                            {suggestions.map(s => (
+                                                <button key={s} onMouseDown={() => applySuggestion(s)} className="w-full text-left px-4 py-3 text-sm font-bold text-gray-900 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 border-b border-gray-200 dark:border-white/5 last:border-0 transition-colors flex items-center gap-2">
+                                                    <Plane size={14} className="text-brand-blue" /> {s}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                        <div className="flex flex-col sm:flex-row gap-3">
-                            <div className="flex-1 relative">
-                                <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">Date (Opt)</label>
-                                <input
-                                    type="date"
-                                    className="w-full bg-gray-50 dark:bg-[#202124] border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-orange/50 focus:border-brand-orange transition-all font-bold text-base pt-7"
-                                    value={flightDate}
-                                    onChange={(e) => setFlightDate(e.target.value)}
-                                />
-                            </div>
-                            <div className="flex-1 relative">
-                                <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">Airline</label>
-                                <select
-                                    className="w-full bg-gray-50 dark:bg-[#202124] border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-blue/50 focus:border-brand-blue transition-all font-bold text-base pt-7 appearance-none cursor-pointer"
-                                    value={airlineFilter}
-                                    onChange={(e) => setAirlineFilter(e.target.value)}
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                <div className="flex-1 relative">
+                                    <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">Airline</label>
+                                    <select
+                                        className="w-full bg-gray-50 dark:bg-[#202124] border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-blue/50 focus:border-brand-blue transition-all font-bold text-base pt-7 appearance-none cursor-pointer"
+                                        value={airlineFilter}
+                                        onChange={(e) => setAirlineFilter(e.target.value)}
+                                    >
+                                        <option value="ALL">All Airlines</option>
+                                        <option value="DAL">Delta Air Lines</option>
+                                        <option value="AAL">American Airlines</option>
+                                        <option value="UAL">United Airlines</option>
+                                        <option value="SWA">Southwest Airlines</option>
+                                        <option value="JBU">JetBlue Airways</option>
+                                        <option value="ASA">Alaska Airlines</option>
+                                        <option value="FFT">Frontier Airlines</option>
+                                        <option value="HAL">Hawaiian Airlines</option>
+                                    </select>
+                                </div>
+                                <button
+                                    onClick={performSearch}
+                                    disabled={isLoading}
+                                    className="bg-gradient-to-r from-brand-orange to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl shadow-lg shadow-brand-orange/30 flex items-center justify-center gap-2 font-bold transition-all hover:scale-[1.03] active:scale-[0.97] px-8 py-3 sm:py-0 disabled:opacity-50 min-w-[120px]"
                                 >
-                                    <option value="ALL">All Airlines</option>
-                                    <option value="DAL">Delta Air Lines</option>
-                                    <option value="AAL">American Airlines</option>
-                                    <option value="UAL">United Airlines</option>
-                                    <option value="SWA">Southwest Airlines</option>
-                                    <option value="JBU">JetBlue Airways</option>
-                                    <option value="ASA">Alaska Airlines</option>
-                                    <option value="FFT">Frontier Airlines</option>
-                                    <option value="HAL">Hawaiian Airlines</option>
-                                </select>
+                                    {isLoading ? <Loader2 className="animate-spin" size={18} /> : <><Search size={18} strokeWidth={3} /> Search</>}
+                                </button>
                             </div>
-                            <button
-                                onClick={performSearch}
-                                disabled={isLoading}
-                                className="bg-gradient-to-r from-brand-orange to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl shadow-lg shadow-brand-orange/30 flex items-center justify-center gap-2 font-bold transition-all hover:scale-[1.03] active:scale-[0.97] px-8 disabled:opacity-50"
-                            >
-                                {isLoading ? <Loader2 className="animate-spin" size={18} /> : <><Search size={18} strokeWidth={3} /> Search</>}
-                            </button>
+                            {/* Sleek Dates Row */}
+                            <div className="flex gap-3">
+                                <div className="relative flex-1">
+                                    <label className="absolute left-3 top-1.5 text-[9px] font-bold uppercase tracking-wider text-gray-500">Departure</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-gray-50/50 dark:bg-white/5 border border-gray-200/50 dark:border-white/5 rounded-lg py-2 pl-3 pr-2 text-gray-900 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-orange/50 transition-all text-sm pt-5"
+                                        value={flightDate}
+                                        onChange={(e) => setFlightDate(e.target.value)}
+                                    />
+                                </div>
+                                <div className="relative flex-1">
+                                    <label className="absolute left-3 top-1.5 text-[9px] font-bold uppercase tracking-wider text-gray-500">Return (Opt)</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-gray-50/50 dark:bg-white/5 border border-gray-200/50 dark:border-white/5 rounded-lg py-2 pl-3 pr-2 text-gray-900 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-orange/50 transition-all text-sm pt-5"
+                                        value={returnDate}
+                                        onChange={(e) => setReturnDate(e.target.value)}
+                                    />
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                        
+                        {/* Disclaimers & Apollo Message */}
+                        <div className="mt-4 space-y-3">
+                            <p className="text-xs text-center text-gray-500 dark:text-white/40 italic px-4">
+                                Live tracking is available up to 3 days in advance. You can search for future flights and live tracking will activate closer to departure!
+                            </p>
+                            <div className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 rounded-xl p-4 flex gap-3 items-start relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-3xl rounded-full"></div>
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg mt-0.5">
+                                    <span className="text-white text-xs font-bold">A</span>
+                                </div>
+                                <div>
+                                    <p className="text-xs font-bold text-indigo-400 dark:text-indigo-300 mb-0.5">Apollo says:</p>
+                                    <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">
+                                        Hey there! We are still working on making the flights feature as advanced as possible. More exciting updates are coming soon in the next version! ✨
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </>
                 )}
+            </div>
+
+            {/* ICAO Disclaimer */}
+            <div className="bg-white/50 dark:bg-white/5 border border-brand-orange/20 rounded-xl p-3 flex items-start gap-3 shadow-sm">
+                <Info size={16} className="text-brand-orange shrink-0 mt-0.5" />
+                <p className="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed font-medium">
+                    <strong className="text-gray-900 dark:text-gray-300">Flight Code Tip:</strong> We use ICAO codes (the industry standard used by ATC and FlightAware) for the most accurate results. Airlines use 3-letter codes — for example, <span className="text-brand-orange font-bold">DAL</span> (Delta), <span className="text-brand-orange font-bold">UAL</span> (United), <span className="text-brand-orange font-bold">AAL</span> (American), <span className="text-brand-orange font-bold">SWA</span> (Southwest). US airports are prefixed with K (e.g., <span className="text-brand-orange font-bold">KATL</span>, <span className="text-brand-orange font-bold">KLAX</span>, <span className="text-brand-orange font-bold">KJFK</span>). International airports use their standard 4-letter ICAO code (e.g., <span className="text-brand-orange font-bold">EGLL</span> for London Heathrow, <span className="text-brand-orange font-bold">RJTT</span> for Tokyo Haneda).{' '}
+                    <a href="https://flightaware.com/about/faq#ident" target="_blank" rel="noopener noreferrer" className="text-brand-blue ml-1 hover:underline font-bold inline-flex items-center gap-0.5">Learn more <ExternalLink size={10}/></a>
+                </p>
             </div>
 
             {/* Results Area */}
@@ -540,8 +636,8 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
                             <span>FlightAware tracks active and upcoming flights only. It is not designed for future travel booking.</span>
                         </div>
                         <div className="flex flex-wrap justify-center gap-2 mb-6">
-                            <button onClick={() => { setSearchMode('flight'); setSearchQuery('DL1182'); }} className="text-xs font-bold bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/10 hover:border-brand-orange/30 hover:text-brand-orange transition">
-                                DL1182
+                            <button onClick={() => { setSearchMode('flight'); setSearchQuery('DAL1182'); }} className="text-xs font-bold bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/10 hover:border-brand-orange/30 hover:text-brand-orange transition">
+                                DAL1182
                             </button>
                             <button onClick={() => { setSearchMode('airport'); setOriginCity('ATL'); }} className="text-xs font-bold bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/10 hover:border-brand-orange/30 hover:text-brand-orange transition">
                                 ATL departures
@@ -636,8 +732,27 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
                                 API: AeroAPI /schedule | Ident: {sched.ident} | Raw Arrival: {sched.arrival}
                             </div>
                         )}
+                        <div className="mt-4 pt-3 border-t border-gray-200 dark:border-white/10 flex justify-between items-center">
+                            <span className="text-[10px] text-brand-blue font-bold tracking-wider uppercase">Apollo Proactive</span>
+                            <button onClick={() => alert('Apollo Schedule Tracking enabled! We will notify you of any equipment or time changes.')} className="bg-brand-blue/10 text-brand-blue hover:bg-brand-blue hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold transition flex items-center gap-1">
+                                <Radar size={12}/> Track Schedule
+                            </button>
+                        </div>
                     </div>
                 ))}
+                
+                {/* Apollo Disclaimer */}
+                {hasSearched && (
+                    <div className="mt-8 mb-4 bg-brand-surface border border-white/10 rounded-2xl p-4 flex gap-4 animate-in fade-in">
+                        <img src="/assets/apollo_pilot.jpg" alt="Apollo" className="w-12 h-12 rounded-full border-2 border-brand-orange/50 shrink-0" />
+                        <div>
+                            <div className="text-brand-orange font-bold text-sm mb-1">Apollo</div>
+                            <p className="text-gray-300 text-sm italic">
+                                "Hey! We are currently working hard to make our flight systems as advanced as possible. Expect major tracking upgrades in the next update!"
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {/* Live Flight Cards */}
                 {(viewMode === 'live' || searchMode === 'flight') && flights.map((flight, i) => (
@@ -740,6 +855,12 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
                             <div className="flex gap-2">
                                 {onTrackFlight && <button onClick={(e) => { e.stopPropagation(); onTrackFlight(flight); }} className="text-brand-orange font-bold text-xs bg-brand-orange/10 px-2 py-1 rounded-md border border-brand-orange/20 hover:bg-brand-orange hover:text-white transition">Track Live</button>}
                                 <button
+                                    onClick={(e) => { e.stopPropagation(); handleOpenSaveDialog(flight); }}
+                                    className="text-brand-orange font-bold text-xs flex items-center gap-1 hover:underline bg-brand-orange/10 px-2 py-1 rounded-md border border-brand-orange/20"
+                                >
+                                    Save to Trip <PlusCircle size={10} />
+                                </button>
+                                <button
                                     onClick={(e) => openGoogleFlights(flight, e)}
                                     className="text-brand-blue font-bold text-xs flex items-center gap-1 hover:underline bg-blue-100 dark:bg-blue-500/10 px-2 py-1 rounded-md border border-blue-200 dark:border-blue-500/20"
                                 >
@@ -759,6 +880,49 @@ export const FlightView: React.FC<FlightViewProps> = ({ onAddToBudget, userTier,
             <div className="text-center py-4 text-[10px] text-gray-500 uppercase tracking-widest">
                 Flight data provided by FlightAware®
             </div>
+
+            {/* Save to Trip Modal */}
+            {isSavingToTrip && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-[#151921] rounded-3xl w-full max-w-sm p-6 shadow-2xl border border-gray-200 dark:border-white/10 animate-in zoom-in-95">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="font-bold text-lg dark:text-white flex items-center gap-2">
+                                <Plane size={20} className="text-brand-orange" /> Save Flight
+                            </h3>
+                            <button onClick={() => setIsSavingToTrip(null)} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 rounded-full transition">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        
+                        <div className="bg-gray-50 dark:bg-black/30 rounded-xl p-3 mb-6 border border-gray-200 dark:border-white/5 text-sm font-medium dark:text-gray-300">
+                            {isSavingToTrip.airline} {isSavingToTrip.flightNumber}
+                        </div>
+
+                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Select a Trip</h4>
+                        
+                        {isFetchingTrips ? (
+                            <div className="py-8 flex justify-center"><Loader2 className="animate-spin text-brand-orange" size={24} /></div>
+                        ) : trips.length === 0 ? (
+                            <div className="text-center py-6 text-sm text-gray-500">
+                                You don't have any trips yet. Create one in the Plans tab!
+                            </div>
+                        ) : (
+                            <div className="space-y-2 max-h-60 overflow-y-auto">
+                                {trips.map(trip => (
+                                    <button
+                                        key={trip.id}
+                                        onClick={() => handleSaveToTrip(trip.id)}
+                                        className="w-full text-left p-3 rounded-xl border border-gray-200 dark:border-white/10 hover:border-brand-orange/50 hover:bg-brand-orange/5 transition group flex justify-between items-center"
+                                    >
+                                        <span className="font-bold text-gray-900 dark:text-white">{trip.name}</span>
+                                        <PlusCircle size={16} className="text-gray-400 group-hover:text-brand-orange transition-colors" />
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
-};
+});

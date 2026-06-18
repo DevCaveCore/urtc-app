@@ -4,37 +4,53 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport"
-    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover" />
   <title>ÜrTC - Travel Companion</title>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9455431514273237" crossorigin="anonymous"></script>
   <meta name="description" content="ÜrTC by Cave Core Dynamics — Your AI-powered travel companion. Track flights, explore cities, plan budgets, and get help from Apollo AI. Travel Evolved." />
-  <meta name="theme-color" content="#0B0E14" />
+  <meta name="theme-color" content="#08090C" />
   <meta property="og:title" content="ÜrTC - Travel Evolved" />
   <meta property="og:description" content="AI-powered travel companion by Cave Core Dynamics. Track flights via FlightAware, explore cities, plan trips with Apollo AI." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://cavecoredynamics.org/urtc" />
   <link rel="canonical" href="https://cavecoredynamics.org/urtc" />
+
+  <!-- Premium Google Fonts: Space Grotesk + Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
-    rel="stylesheet">
-  <script
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAm5lbG7x6bdpXyXBzjYM7z9HxwOOnx3yw&libraries=places,marker,geometry&v=weekly"></script>
+
+  <!-- Google Maps -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAm5lbG7x6bdpXyXBzjYM7z9HxwOOnx3yw&libraries=places,marker,geometry&v=weekly"></script>
+
+  <!-- Google AdSense -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9455431514273237" crossorigin="anonymous"></script>
+
   <script>
     tailwind.config = {
       darkMode: 'class',
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Plus Jakarta Sans', 'sans-serif'],
+            sans: ['Inter', 'sans-serif'],
+            display: ['Space Grotesk', 'sans-serif'],
           },
           colors: {
             brand: {
-              orange: '#FF6B35',
-              blue: '#2D7DD2',
-              dark: '#0B0E14',
-              surface: '#151921',
-              glass: 'rgba(255, 255, 255, 0.03)',
-              apollo: '#D68C45'
+              orange: '#FF5C1A',
+              'orange-glow': 'rgba(255,92,26,0.15)',
+              blue: '#2E86FF',
+              'blue-glow': 'rgba(46,134,255,0.15)',
+              dark: '#08090C',
+              ink: '#08090C',
+              surface: '#10131A',
+              elevated: '#161B25',
+              glass: 'rgba(255,255,255,0.04)',
+              border: 'rgba(255,255,255,0.07)',
+              apollo: '#FFB800',
+              'apollo-glow': 'rgba(255,184,0,0.15)',
             }
           },
           animation: {
@@ -45,6 +61,10 @@
             'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
             'shimmer': 'shimmer 2s linear infinite',
             'wag': 'wag 0.5s ease-in-out infinite alternate',
+            'slide-up': 'slideUp 0.5s cubic-bezier(0.16,1,0.3,1) forwards',
+            'glow-pulse': 'glowPulse 2.5s ease-in-out infinite',
+            'blur-in': 'blurIn 0.4s ease-out forwards',
+            'scale-in': 'scaleIn 0.35s cubic-bezier(0.16,1,0.3,1) forwards',
           },
           keyframes: {
             float: {
@@ -74,52 +94,102 @@
             wag: {
               '0%': { transform: 'rotate(-10deg)' },
               '100%': { transform: 'rotate(10deg)' }
+            },
+            slideUp: {
+              '0%': { opacity: '0', transform: 'translateY(24px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' }
+            },
+            glowPulse: {
+              '0%, 100%': { boxShadow: '0 0 20px rgba(255,92,26,0.3), 0 0 40px rgba(255,92,26,0.1)' },
+              '50%': { boxShadow: '0 0 30px rgba(255,92,26,0.6), 0 0 60px rgba(255,92,26,0.2)' }
+            },
+            blurIn: {
+              '0%': { opacity: '0', filter: 'blur(12px)', transform: 'scale(0.98)' },
+              '100%': { opacity: '1', filter: 'blur(0px)', transform: 'scale(1)' }
+            },
+            scaleIn: {
+              '0%': { opacity: '0', transform: 'scale(0.92)' },
+              '100%': { opacity: '1', transform: 'scale(1)' }
             }
           }
         }
       }
     }
   </script>
+
   <style>
+    :root {
+      --ink: #08090C;
+      --surface: #10131A;
+      --elevated: #161B25;
+      --accent: #FF5C1A;
+      --accent-glow: rgba(255, 92, 26, 0.15);
+      --sky: #2E86FF;
+      --sky-glow: rgba(46, 134, 255, 0.15);
+      --gold: #FFB800;
+      --border: rgba(255, 255, 255, 0.07);
+      --glass-bg: rgba(22, 27, 37, 0.75);
+      --glass-border: rgba(255, 255, 255, 0.08);
+    }
+
+    * {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
-      background-color: #0B0E14;
+      background-color: var(--ink);
       color: white;
+      font-family: 'Inter', sans-serif;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
+      overscroll-behavior: none;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+      font-family: 'Space Grotesk', sans-serif;
     }
 
     /* Hide scrollbar for Chrome, Safari and Opera */
+    .hide-scrollbar::-webkit-scrollbar,
     .scrollbar-hide::-webkit-scrollbar {
       display: none;
     }
-
-    /* Hide scrollbar for IE, Edge and Firefox */
+    .hide-scrollbar,
     .scrollbar-hide {
       -ms-overflow-style: none;
-      /* IE and Edge */
       scrollbar-width: none;
-      /* Firefox */
     }
 
     /* Custom Modern Scrollbar */
-    ::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.08);
       border-radius: 10px;
     }
-
     ::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.15);
     }
 
-    /* Glass Utility */
+    /* ─── Glass utilities ─── */
+    .glass {
+      background: var(--glass-bg);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--glass-border);
+    }
+
+    .glass-light {
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
     .glass-panel {
       background: rgba(21, 25, 33, 0.7);
       backdrop-filter: blur(20px);
@@ -127,14 +197,94 @@
       border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
-    .glass-card {
-      background: rgba(255, 255, 255, 0.03);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+    /* ─── Glow utilities ─── */
+    .glow-orange {
+      box-shadow: 0 0 24px rgba(255, 92, 26, 0.35), 0 0 8px rgba(255, 92, 26, 0.2);
     }
-  </style>
+    .glow-blue {
+      box-shadow: 0 0 24px rgba(46, 134, 255, 0.35), 0 0 8px rgba(46, 134, 255, 0.2);
+    }
+    .glow-gold {
+      box-shadow: 0 0 24px rgba(255, 184, 0, 0.4), 0 0 8px rgba(255, 184, 0, 0.2);
+    }
 
+    /* ─── Surface card ─── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+    }
+    .card-elevated {
+      background: var(--elevated);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 20px;
+    }
+
+    /* ─── Floating Pill Nav ─── */
+    .pill-nav {
+      background: rgba(10, 12, 16, 0.98);
+      backdrop-filter: blur(40px);
+      -webkit-backdrop-filter: blur(40px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 -4px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05);
+    }
+
+    /* ─── Gradient text ─── */
+    .gradient-text {
+      background: linear-gradient(135deg, #FF5C1A, #FF8C5A);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .gradient-text-blue {
+      background: linear-gradient(135deg, #2E86FF, #7BB8FF);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* ─── Shimmer skeleton ─── */
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background: rgba(255,255,255,0.05);
+    }
+    .skeleton::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+      animation: shimmer 1.8s linear infinite;
+    }
+
+    /* ─── Smooth active press ─── */
+    .press {
+      transition: transform 0.12s cubic-bezier(0.16,1,0.3,1);
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+    }
+    .press:active { transform: scale(0.96); }
+
+    /* ─── Eliminate tap delay on all interactive elements ─── */
+    button, a, [role="button"] {
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* ─── Bottom safe area ─── */
+    .pb-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
+    .pt-safe-top { padding-top: env(safe-area-inset-top, 0px); }
+
+    /* ─── Stagger animation delays ─── */
+    .delay-100 { animation-delay: 0.1s; }
+    .delay-150 { animation-delay: 0.15s; }
+    .delay-200 { animation-delay: 0.2s; }
+    .delay-300 { animation-delay: 0.3s; }
+    .delay-400 { animation-delay: 0.4s; }
+    .delay-500 { animation-delay: 0.5s; }
+  </style>
 </head>
 
 <body>

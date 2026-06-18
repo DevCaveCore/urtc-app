@@ -135,6 +135,7 @@ export enum Tab {
   Fun = 'fun',
   Flights = 'flights',
   Explore = 'explore',
+  Wander = 'wander', // Social Tab
   Apollo = 'apollo', // Center Tab (AI)
   Itinerary = 'itinerary', // Plans (Itinerary + Docs + Auth)
   About = 'about'
@@ -158,13 +159,38 @@ export interface Note {
   isAiGenerated?: boolean;
 }
 
-export interface TripPlan {
+export interface TripFlight {
   id: string;
+  trip_id: string;
+  flight_number: string;
+  airline?: string;
+  flight_date: string;
+  departure_airport?: string;
+  arrival_airport?: string;
+  status: string;
+}
+
+export interface BudgetCategory {
+  id: string;
+  type: 'Flight' | 'Hotel' | 'Food' | 'Attraction' | 'Bars & Nightlife' | 'Other'; 
+  label: string; 
+  planned: number;
+  allocated?: number;
+}
+
+export interface Trip {
+  id: string;
+  user_id: string;
   name: string;
-  startDate?: Date;
-  endDate?: Date;
+  start_date?: string;
+  end_date?: string;
+  created_at: string;
+  archived?: boolean;
   notes: Note[];
-  budgetItems: BudgetItem[];
+  budget_categories: BudgetCategory[];
+  passes: Pass[];
+  flights?: TripFlight[]; // Joined dynamically
+  places?: Place[]; // Places saved from Explore
 }
 
 export interface Pass {
@@ -177,11 +203,11 @@ export interface Pass {
 }
 
 export enum UserTier {
-  Guest = "Guest", // Bronze
-  Free = "Free",   // Silver
-  Pro = "Pro",     // Diamond (formerly Gold)
-  Crew = "Crew",   // Professional (formerly Crew)
-  Dev = "Dev"      // Hidden Dev tier
+  Guest = "Bronze", // Guest
+  Free = "Silver",   // Free
+  Diamond = "Diamond",     // Pro
+  Professional = "Professional",   // Crew
+  Dev = "Dev"      // Dev
 }
 
 export type Theme = 'light' | 'dark' | 'amoled';
@@ -241,6 +267,9 @@ export interface UserAccount {
   level: number;
   promoOptIn?: boolean;
   rememberMe?: boolean;
+  avatarUrl?: string;
+  bio?: string;
+  isPrivate?: boolean;
 }
 
 export const getRankTitle = (level: number): string => {

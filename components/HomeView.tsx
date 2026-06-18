@@ -1,175 +1,243 @@
-
-import React, { useState } from 'react';
-import { Plane, Building2, Search, ArrowRight, Play, Info, Sparkles, Zap, Map, Notebook, CreditCard } from 'lucide-react';
+import React from 'react';
+import { Plane, Building2, ArrowRight, Play, Sparkles, Zap, Notebook, CreditCard, TrendingUp, Map, Globe } from 'lucide-react';
 import { UserAccount, UserTier, Tab, getRankTitle, BudgetItem } from '../types';
-import { getActiveUser } from '../services/authService';
-import { TutorialOverlay } from './TutorialOverlay';
 
 interface HomeViewProps {
     user: UserAccount;
     onNavigate: (tab: Tab) => void;
     onExplore: (city: string) => void;
+    onStartTour?: () => void;
     budgetItems?: BudgetItem[];
     budgetLimit?: number;
 }
 
-export const HomeView: React.FC<HomeViewProps> = ({ user, onNavigate, onExplore, budgetItems = [], budgetLimit = 0 }) => {
-    const [showTutorial, setShowTutorial] = useState(false);
+const TRENDING_DESTINATIONS = [
+    { city: 'Tokyo', country: 'Japan', img: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=400&h=300&fit=crop', tag: '🔥 Trending' },
+    { city: 'Santorini', country: 'Greece', img: 'https://images.unsplash.com/photo-1533105079780-92b9be482077?w=400&h=300&fit=crop', tag: '✈️ Popular' },
+    { city: 'Bali', country: 'Indonesia', img: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=400&h=300&fit=crop', tag: '🌴 Tropical' },
+    { city: 'Paris', country: 'France', img: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=400&h=300&fit=crop', tag: '🗼 Iconic' },
+    { city: 'Dubai', country: 'UAE', img: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=400&h=300&fit=crop', tag: '💎 Luxury' },
+    { city: 'New York', country: 'USA', img: 'https://images.unsplash.com/photo-1534430480872-3498386e7856?w=400&h=300&fit=crop', tag: '🌆 City Life' },
+];
 
+const QUICK_ACTIONS = [
+    { tab: Tab.Explore, icon: <Building2 size={22} />, label: 'Explore', sub: 'Hotels & food', color: 'from-blue-500/20 to-blue-600/10', accent: 'text-blue-400', border: 'border-blue-500/20' },
+    { tab: Tab.Apollo, icon: <Sparkles size={22} />, label: 'Apollo AI', sub: 'Ask anything', color: 'from-brand-orange/20 to-orange-600/10', accent: 'text-brand-orange', border: 'border-brand-orange/20' },
+    { tab: Tab.Itinerary, icon: <Notebook size={22} />, label: 'My Plans', sub: 'Trips & notes', color: 'from-emerald-500/20 to-emerald-600/10', accent: 'text-emerald-400', border: 'border-emerald-500/20' },
+    { tab: Tab.Wander, icon: <Globe size={22} />, label: 'Wander', sub: 'Travel feed', color: 'from-purple-500/20 to-purple-600/10', accent: 'text-purple-400', border: 'border-purple-500/20' },
+    { tab: Tab.About, icon: <CreditCard size={22} />, label: 'Change Plan', sub: 'Plans & perks', color: 'from-amber-500/20 to-amber-600/10', accent: 'text-amber-400', border: 'border-amber-500/20' },
+];
+
+export const HomeView: React.FC<HomeViewProps> = React.memo(({ user, onNavigate, onExplore, onStartTour, budgetItems = [], budgetLimit = 0 }) => {
     const getGreeting = () => {
         const hour = new Date().getHours();
+        if (hour < 5) return 'Up late';
         if (hour < 12) return 'Good morning';
-        if (hour < 18) return 'Good afternoon';
-        return 'Good evening';
+        if (hour < 17) return 'Good afternoon';
+        if (hour < 21) return 'Good evening';
+        return 'Good night';
     };
 
-    // Gamification Stats
     const rank = getRankTitle(user.level || 1);
-    const currentLevelXp = 50 * Math.pow(Math.max(0, (user.level || 1) - 1), 2); // Ensure non-negative for level 1
+    const currentLevelXp = 50 * Math.pow(Math.max(0, (user.level || 1) - 1), 2);
     const nextLevelXp = 50 * Math.pow((user.level || 1), 2);
-    const progress = Math.min(100, Math.max(0, ((user.xp || 0) - currentLevelXp) / (nextLevelXp - currentLevelXp) * 100));
-
-
+    const xpProgress = Math.min(100, Math.max(0, ((user.xp || 0) - currentLevelXp) / Math.max(1, nextLevelXp - currentLevelXp) * 100));
+    const totalSpent = budgetItems.reduce((s, i) => s + i.cost, 0);
+    const budgetProgress = budgetLimit > 0 ? Math.min(100, (totalSpent / budgetLimit) * 100) : 0;
 
     return (
-        <div className="space-y-6 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Header */}
-            <div className="flex justify-between items-center px-2">
-                <div>
-                    <div className="flex items-center gap-2">
-                        <h1 className="text-2xl font-black text-gray-900 dark:text-white">Hi, {user.username}</h1>
-                        <span className="bg-brand-orange/10 text-brand-orange px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border border-brand-orange/20">Lvl {user.level || 1} • {rank}</span>
-                    </div>
+        <div className="space-y-5 pb-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+            {/* ── Hero Greeting ── */}
+            <div className="relative rounded-3xl overflow-hidden min-h-[200px] shadow-lg shadow-black/20">
+                {/* Background image */}
+                <img
+                    src="https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&h=400&fit=crop"
+                    alt="Travel"
+                    className="absolute inset-0 w-full h-full object-cover"
+                />
+                {/* Gradient overlays */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/10" />
+                <div className="absolute inset-0 bg-gradient-to-r from-black/50 to-transparent" />
 
-                    {/* XP Bar */}
-                    <div className="flex items-center gap-2 mt-1">
-                        <div className="w-32 h-1.5 bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-brand-orange to-brand-blue" style={{ width: `${progress}% ` }}></div>
+                {/* Content */}
+                <div className="relative z-10 p-6 flex flex-col justify-between h-full min-h-[200px]">
+                    {/* Top: tier badge */}
+                    <div className="flex justify-between items-start">
+                        <div className="glass-light px-3 py-1.5 rounded-full flex items-center gap-1.5">
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                                user.tier === UserTier.Diamond || user.tier === UserTier.Dev
+                                    ? 'bg-amber-400 animate-pulse' : 'bg-white/30'
+                            }`} />
+                            <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider">
+                                {user.tier === UserTier.Dev ? '⚡ Dev' :
+                                 user.tier === UserTier.Diamond ? '💎 Diamond' :
+                                 user.tier === UserTier.Professional ? '🎯 Professional' :
+                                 user.tier === UserTier.Free ? '🥈 Silver' : '🥉 Bronze'}
+                            </span>
                         </div>
-                        <p className="text-[10px] font-bold text-gray-400">{(user.xp || 0)} / {nextLevelXp} XP</p>
-
-
+                        <div className="glass-light w-11 h-11 rounded-2xl flex items-center justify-center">
+                            <span className="text-xl font-bold text-white">{user.username.charAt(0).toUpperCase()}</span>
+                        </div>
                     </div>
-                </div>
-                <div className="w-10 h-10 rounded-full bg-brand-orange text-white flex items-center justify-center font-bold text-lg shadow-lg">
-                    {user.username.charAt(0)}
+
+                    {/* Bottom: greeting + XP */}
+                    <div>
+                        <p className="text-white/50 text-sm font-medium mb-1">{getGreeting()},</p>
+                        <h1 className="font-display text-3xl font-bold text-white leading-tight mb-3">
+                            {user.username} <span className="text-brand-orange">✈</span>
+                        </h1>
+
+                        {/* XP bar */}
+                        <div className="flex items-center gap-3">
+                            <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-gradient-to-r from-brand-orange to-amber-400 rounded-full transition-all duration-700"
+                                    style={{ width: `${xpProgress}%` }}
+                                />
+                            </div>
+                            <span className="text-[10px] font-bold text-white/40 shrink-0">
+                                Lv.{user.level || 1} {rank} · {user.xp || 0} XP
+                            </span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            {/* Active Trip / Status Card */}
-            <div className="bg-gradient-to-br from-brand-dark to-[#151921] border border-white/10 rounded-3xl p-6 relative overflow-hidden shadow-2xl group cursor-pointer transition-transform active:scale-98" onClick={() => onNavigate(Tab.Flights)}>
-                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                    <Plane size={120} />
-                </div>
-                <div className="relative z-10">
-                    <div className="inline-flex items-center gap-2 bg-green-500/20 border border-green-500/30 px-3 py-1 rounded-full text-green-400 text-[10px] font-bold uppercase tracking-wider mb-4">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                        Ready for Takeoff
+            {/* ── Start a Trip CTA ── */}
+            <button
+                id="tour-home-start"
+                onClick={() => onNavigate(Tab.Flights)}
+                className="w-full card-elevated p-5 flex items-center justify-between group press"
+            >
+                <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-brand-orange/15 border border-brand-orange/20 flex items-center justify-center">
+                        <Plane size={22} className="text-brand-orange" />
                     </div>
-                    <h3 className="text-2xl font-bold text-white mb-1">No Active Trips</h3>
-                    <p className="text-gray-400 text-sm mb-6">Start planning your next adventure today.</p>
-
-                    <button className="bg-brand-orange text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-orange-600 transition shadow-lg">
-                        Find Flights <ArrowRight size={16} />
-                    </button>
+                    <div className="text-left">
+                        <p className="font-display text-base font-bold text-white">Plan Your Next Trip</p>
+                        <p className="text-xs text-white/40 mt-0.5">Search flights &amp; track live prices</p>
+                    </div>
                 </div>
-            </div>
+                <div className="w-8 h-8 rounded-full bg-brand-orange/10 flex items-center justify-center group-hover:bg-brand-orange transition-colors duration-200">
+                    <ArrowRight size={16} className="text-brand-orange group-hover:text-white transition-colors" />
+                </div>
+            </button>
 
-            {/* Budget Summary Card */}
+            {/* ── Budget Card (when active) ── */}
             {budgetLimit > 0 && (
-                <div onClick={() => onNavigate(Tab.Itinerary)} className="bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-2xl p-4 shadow-sm cursor-pointer hover:border-brand-orange/30 transition group">
-                    <div className="flex justify-between items-center mb-3">
-                        <h3 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                            <span className="text-brand-orange">💰</span> Trip Budget
-                        </h3>
-                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider group-hover:text-brand-orange transition">View Details →</span>
-                    </div>
-                    <div className="flex justify-between items-end mb-2">
+                <div
+                    onClick={() => onNavigate(Tab.Itinerary)}
+                    className="card-elevated p-5 cursor-pointer press animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100 fill-mode-both"
+                >
+                    <div className="flex items-center justify-between mb-4">
                         <div>
-                            <p className="text-[10px] text-gray-500 uppercase font-bold">Spent</p>
-                            <p className="text-lg font-black text-gray-900 dark:text-white">${budgetItems.reduce((s, i) => s + i.cost, 0).toLocaleString()}</p>
+                            <p className="text-[10px] text-white/30 uppercase font-bold tracking-wider mb-1">Trip Budget</p>
+                            <p className="font-display text-2xl font-bold text-white">
+                                ${totalSpent.toLocaleString()}
+                                <span className="text-white/25 text-base font-medium"> / ${budgetLimit.toLocaleString()}</span>
+                            </p>
                         </div>
                         <div className="text-right">
-                            <p className="text-[10px] text-gray-500 uppercase font-bold">Budget</p>
-                            <p className="text-lg font-black text-brand-orange">${budgetLimit.toLocaleString()}</p>
+                            <p className="text-[10px] text-white/30 uppercase tracking-wider">Remaining</p>
+                            <p className={`font-display text-xl font-bold ${budgetProgress > 90 ? 'text-red-400' : budgetProgress > 70 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                                ${Math.max(0, budgetLimit - totalSpent).toLocaleString()}
+                            </p>
                         </div>
                     </div>
-                    <div className="w-full h-2 bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all duration-500 ${(budgetItems.reduce((s, i) => s + i.cost, 0) / budgetLimit) > 0.9 ? 'bg-red-500' : (budgetItems.reduce((s, i) => s + i.cost, 0) / budgetLimit) > 0.7 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${Math.min(100, (budgetItems.reduce((s, i) => s + i.cost, 0) / budgetLimit) * 100)}%` }} />
+                    <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+                        <div
+                            className={`h-full rounded-full transition-all duration-700 ${
+                                budgetProgress > 90 ? 'bg-gradient-to-r from-red-500 to-red-400' :
+                                budgetProgress > 70 ? 'bg-gradient-to-r from-amber-500 to-amber-400' :
+                                'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                            }`}
+                            style={{ width: `${budgetProgress}%` }}
+                        />
                     </div>
-                    <p className="text-[10px] text-gray-400 mt-1 text-right">${Math.max(0, budgetLimit - budgetItems.reduce((s, i) => s + i.cost, 0)).toLocaleString()} remaining</p>
                 </div>
             )}
 
-            {/* Quick Actions Grid */}
-            <div>
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2"><Zap size={16} className="text-brand-orange" /> Quick Actions</h2>
-                <div className="grid grid-cols-2 gap-3">
-                    <button onClick={() => onNavigate(Tab.Explore)} className="bg-white dark:bg-[#151921] p-4 rounded-2xl border border-gray-200 dark:border-white/5 shadow-sm hover:border-brand-orange/30 transition text-left flex flex-col gap-3 group">
-                        <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform"><Building2 size={20} /></div>
-                        <div>
-                            <span className="block font-bold text-gray-900 dark:text-white">Explore City</span>
-                            <span className="text-xs text-gray-500 dark:text-gray-400">Find hotels & food</span>
-                        </div>
-                    </button>
-                    <button onClick={() => onNavigate(Tab.Apollo)} className="bg-white dark:bg-[#151921] p-4 rounded-2xl border border-gray-200 dark:border-white/5 shadow-sm hover:border-brand-orange/30 transition text-left flex flex-col gap-3 group">
-                        <div className="w-10 h-10 rounded-full bg-brand-orange/10 flex items-center justify-center text-brand-orange group-hover:scale-110 transition-transform"><Sparkles size={20} /></div>
-                        <div>
-                            <span className="block font-bold text-gray-900 dark:text-white">Ask Apollo</span>
-                            <span className="text-xs text-gray-500 dark:text-gray-400">AI Trip Assistant</span>
-                        </div>
-                    </button>
-                    <button onClick={() => onNavigate(Tab.Itinerary)} className="bg-white dark:bg-[#151921] p-4 rounded-2xl border border-gray-200 dark:border-white/5 shadow-sm hover:border-brand-orange/30 transition text-left flex flex-col gap-3 group">
-                        <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center text-green-500 group-hover:scale-110 transition-transform"><Notebook size={20} /></div>
-                        <div>
-                            <span className="block font-bold text-gray-900 dark:text-white">My Plans</span>
-                            <span className="text-xs text-gray-500 dark:text-gray-400">Notes & Budget</span>
-                        </div>
-                    </button>
-                    <button onClick={() => onNavigate(Tab.About)} className="bg-white dark:bg-[#151921] p-4 rounded-2xl border border-gray-200 dark:border-white/5 shadow-sm hover:border-brand-orange/30 transition text-left flex flex-col gap-3 group">
-                        <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-500 group-hover:scale-110 transition-transform"><CreditCard size={20} /></div>
-                        <div>
-                            <span className="block font-bold text-gray-900 dark:text-white">My Wallet</span>
-                            <span className="text-xs text-gray-500 dark:text-gray-400">Plans & Settings</span>
-                        </div>
-                    </button>
+            {/* ── Quick Actions (horizontal scroll) ── */}
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150 fill-mode-both">
+                <div className="flex items-center justify-between mb-3">
+                    <h2 className="font-display text-base font-bold text-white flex items-center gap-2">
+                        <Zap size={15} className="text-brand-orange" /> Quick Actions
+                    </h2>
+                </div>
+                <div className="flex gap-3 overflow-x-auto hide-scrollbar pb-1">
+                    {QUICK_ACTIONS.map(({ tab, icon, label, sub, color, accent, border }) => (
+                        <button
+                            key={tab}
+                            onClick={() => onNavigate(tab)}
+                            className={`flex-shrink-0 w-28 rounded-2xl p-4 bg-gradient-to-br ${color} border ${border} flex flex-col gap-3 press`}
+                        >
+                            <div className={`${accent}`}>{icon}</div>
+                            <div className="text-left">
+                                <p className="text-white text-sm font-bold leading-tight">{label}</p>
+                                <p className="text-white/40 text-[10px] mt-0.5">{sub}</p>
+                            </div>
+                        </button>
+                    ))}
                 </div>
             </div>
 
-            {/* Ad Slot (Native) */}
-            {(user.tier === UserTier.Guest || user.tier === UserTier.Free) && (
-                <div className="bg-gray-100 dark:bg-white/5 rounded-2xl p-4 border border-gray-200 dark:border-white/5 flex items-center gap-4">
-                    <div className="w-12 h-12 bg-gray-300 dark:bg-white/10 rounded-lg flex items-center justify-center text-xs font-bold text-gray-500">AD</div>
+            {/* ── Trending Destinations ── */}
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-200 fill-mode-both">
+                <div className="flex items-center justify-between mb-3">
+                    <h2 className="font-display text-base font-bold text-white flex items-center gap-2">
+                        <TrendingUp size={15} className="text-brand-orange" /> Trending Now
+                    </h2>
+                    <button onClick={() => onNavigate(Tab.Explore)} className="text-brand-orange text-xs font-semibold flex items-center gap-1 hover:underline">
+                        See all <ArrowRight size={12} />
+                    </button>
+                </div>
+                <div className="flex gap-3 overflow-x-auto hide-scrollbar pb-1">
+                    {TRENDING_DESTINATIONS.map(({ city, country, img, tag }) => (
+                        <button
+                            key={city}
+                            onClick={() => onExplore(city)}
+                            className="flex-shrink-0 w-40 rounded-2xl overflow-hidden relative group press"
+                        >
+                            <img
+                                src={img}
+                                alt={city}
+                                className="w-full h-44 object-cover group-hover:scale-105 transition-transform duration-500"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                            <div className="absolute top-3 left-3">
+                                <span className="text-[10px] font-bold bg-black/50 backdrop-blur-sm text-white px-2 py-1 rounded-full border border-white/10">
+                                    {tag}
+                                </span>
+                            </div>
+                            <div className="absolute bottom-3 left-3 right-3 text-left">
+                                <p className="font-display font-bold text-white text-sm leading-tight">{city}</p>
+                                <p className="text-white/50 text-[10px]">{country}</p>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* ── Tutorial / Onboarding CTA ── */}
+            <div className="relative rounded-3xl overflow-hidden p-5 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-300 fill-mode-both shadow-lg shadow-black/20">
+                <div className="absolute inset-0 bg-gradient-to-br from-brand-blue/25 via-brand-blue/10 to-transparent" />
+                <div className="absolute inset-0 border border-brand-blue/20 rounded-3xl" />
+                <div className="relative z-10 flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-brand-blue/20 border border-brand-blue/30 flex items-center justify-center shrink-0">
+                        <Map size={22} className="text-brand-blue" />
+                    </div>
                     <div className="flex-1">
-                        <p className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider mb-1">Sponsored</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-300">Upgrade to Pro for the ultimate travel experience.</p>
+                        <p className="font-display font-bold text-white">New to ÜrTC?</p>
+                        <p className="text-white/40 text-xs mt-0.5">Take a quick tour of every feature</p>
                     </div>
-                    <button className="text-brand-orange text-xs font-bold hover:underline" onClick={() => onNavigate(Tab.About)}>View Plans</button>
+                    <button
+                        onClick={() => onStartTour?.()}
+                        className="flex items-center gap-1.5 bg-brand-blue text-white text-xs font-bold px-4 py-2 rounded-xl shadow-lg shadow-brand-blue/20 press shrink-0"
+                    >
+                        <Play size={12} fill="currentColor" /> Tour
+                    </button>
                 </div>
-            )}
-
-            {/* Tutorial Section */}
-            <div className="bg-brand-blue/10 rounded-3xl p-4 border border-brand-blue/20">
-                <div className="flex items-center gap-3 mb-2">
-                    <div className="bg-brand-blue text-white p-2 rounded-lg">
-                        <Info size={20} />
-                    </div>
-                    <h3 className="text-lg font-bold text-brand-blue">New to ÜrTC?</h3>
-                </div>
-                <p className="text-sm text-gray-700 dark:text-gray-300 mb-3 leading-relaxed">
-                    Discover how to use Apollo AI to simulate flight prices, find hidden gems in any city, and organize your entire trip in one place.
-                </p>
-                <button
-                    onClick={() => setShowTutorial(true)}
-                    className="w-full bg-brand-blue text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-600 transition shadow-lg active:scale-95"
-                >
-                    <Play size={18} fill="currentColor" /> Start Interactive Tutorial
-                </button>
             </div>
-
-
-
-            {showTutorial && <TutorialOverlay onClose={() => setShowTutorial(false)} />}
         </div>
     );
-};
+});

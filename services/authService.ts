@@ -79,8 +79,8 @@ export const redeemAccessCode = (code: string): UserAccount => {
   switch (cleanCode) {
     case '1': tier = UserTier.Guest; name = "Guest User"; break; 
     case '2': tier = UserTier.Free; name = "Silver User"; break; 
-    case '3': tier = UserTier.Pro; name = "Diamond Pro User"; break; 
-    case '4': tier = UserTier.Crew; name = "Professional User"; break; 
+    case '3': tier = UserTier.Diamond; name = "Diamond User"; break; 
+    case '4': tier = UserTier.Professional; name = "Professional User"; break; 
     case '070512': tier = UserTier.Dev; name = "Developer"; break; 
     default: throw new Error("Invalid Access Code");
   }
@@ -147,6 +147,22 @@ export const updateUserTier = async (userId: string, tier: UserTier) => {
   // Update backend if real user
   if (!userId.startsWith('guest') && !userId.startsWith('code-')) {
     await supabase.from('profiles').update({ tier }).eq('id', userId);
+  }
+};
+
+export const updateUserProfile = async (userId: string, profileData: Partial<UserAccount>) => {
+  const active = getActiveUser();
+  if (active && active.id === userId) {
+    const updatedUser = { ...active, ...profileData };
+    setActiveUser(updatedUser);
+  }
+
+  if (!userId.startsWith('guest') && !userId.startsWith('code-')) {
+    await supabase.from('profiles').update({
+      avatar_url: profileData.avatarUrl,
+      bio: profileData.bio,
+      is_private: profileData.isPrivate
+    }).eq('id', userId);
   }
 };
 

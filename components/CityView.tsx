@@ -7,6 +7,8 @@ import { getTransitRates } from '../services/mockService';
 import { getActiveUser } from '../services/authService';
 import { supabase } from '../services/supabaseClient';
 import { SwipeToDelete } from './SwipeToDelete';
+import { fetchTrips, updateTrip } from '../services/tripService';
+import { Trip } from '../types';
 
 interface CityViewProps {
     onAddToBudget: (item: BudgetItem) => void;
@@ -23,7 +25,7 @@ declare global {
 
 const PRESET_CITIES = ["Atlanta, GA, USA", "Brookhaven, GA, USA", "New York, NY, USA", "London, UK", "Tokyo, Japan", "Paris, France"];
 
-export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity = "Atlanta", onCityChange, theme = 'dark' }) => {
+export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, initialCity = "Atlanta", onCityChange, theme = 'dark' }) => {
     const [currentCity, setCurrentCity] = useState(initialCity);
     const [weather, setWeather] = useState<Weather | null>(null);
     const [places, setPlaces] = useState<Place[]>([]);
@@ -38,13 +40,17 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
     const [cityInput, setCityInput] = useState('');
     const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
     const [showCitySuggestions, setShowCitySuggestions] = useState(false);
+    const [userTrips, setUserTrips] = useState<Trip[]>([]);
+    const [placeToSave, setPlaceToSave] = useState<Place | null>(null);
+    const [hasInitializedLocation, setHasInitializedLocation] = useState(false);
 
     const mapRef = useRef<HTMLDivElement>(null);
     const googleMapRef = useRef<any>(null);
     const geocoderRef = useRef<any>(null);
 
+    const [travelMode, setTravelMode] = useState('DRIVING');
+
     useEffect(() => {
-        handleCityChange(initialCity);
         const loadSavedPlaces = async () => {
             const user = getActiveUser();
             if (user && !user.id.startsWith('guest')) {
@@ -58,6 +64,14 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
             }
         };
         loadSavedPlaces();
+        const loadTrips = async () => {
+            const user = getActiveUser();
+            if (user) {
+                const trips = await fetchTrips(user.id);
+                setUserTrips(trips);
+            }
+        };
+        loadTrips();
     }, []);
 
     const toggleSavePlace = async (place: Place) => {
@@ -107,6 +121,41 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
         }
     }, [mapRef.current, mapReady, activeTab]);
 
+    // Initial Location Detection
+    useEffect(() => {
+        if (!mapReady || hasInitializedLocation) return;
+        setHasInitializedLocation(true);
+
+        if ("geolocation" in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const { latitude, longitude } = position.coords;
+                    const geocoder = new window.google.maps.Geocoder();
+                    geocoder.geocode({ location: { lat: latitude, lng: longitude } }, (results: any[], status: any) => {
+                        if (status === 'OK' && results[0]) {
+                            const cityComp = results[0].address_components.find((c: any) => c.types.includes('locality'));
+                            const stateComp = results[0].address_components.find((c: any) => c.types.includes('administrative_area_level_1'));
+                            const countryComp = results[0].address_components.find((c: any) => c.types.includes('country'));
+                            
+                            let detectedCity = '';
+                            if (cityComp) detectedCity += cityComp.long_name;
+                            if (stateComp && countryComp?.short_name === 'US') detectedCity += `, ${stateComp.short_name}`;
+                            else if (countryComp) detectedCity += `, ${countryComp.short_name}`;
+                            
+                            handleCityChange(detectedCity || initialCity);
+                        } else {
+                            handleCityChange(initialCity);
+                        }
+                    });
+                },
+                () => handleCityChange(initialCity),
+                { timeout: 5000 }
+            );
+        } else {
+            handleCityChange(initialCity);
+        }
+    }, [mapReady, hasInitializedLocation]);
+
     // City Autocomplete logic using Google Places
     useEffect(() => {
         if (!cityInput || !window.google) return;
@@ -124,6 +173,7 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
         setCitySelectorOpen(false);
         setShowCitySuggestions(false);
         setCityInput(''); // Reset input after selection
+        setPlaces([]); // Instantly clear old results
         if (onCityChange) onCityChange(city);
         // Track for Apollo proactive tips
         localStorage.setItem('urtc_last_city', city.split(',')[0].trim());
@@ -152,30 +202,30 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
         const types = p.types || [];
 
         // 1. Direct Price Level Mapping (Google API)
-        if (level) {
-            if (level === 'PRICE_LEVEL_FREE') return { display: 'Free', estimate: 0, level: 1 };
-            if (level === 'PRICE_LEVEL_INEXPENSIVE') return { display: '$10-25', estimate: 15, level: 1 }; // $
-            if (level === 'PRICE_LEVEL_MODERATE') return { display: '$30-60', estimate: 45, level: 2 };    // $$
-            if (level === 'PRICE_LEVEL_EXPENSIVE') return { display: '$70-120', estimate: 90, level: 3 };  // $$$
-            if (level === 'PRICE_LEVEL_VERY_EXPENSIVE') return { display: '$150+', estimate: 200, level: 4 }; // $$$$
+        if (level !== undefined && level !== null) {
+            if (level === 0 || level === 'PRICE_LEVEL_FREE') return { display: 'Free', estimate: 0, level: 1 };
+            if (level === 1 || level === 'PRICE_LEVEL_INEXPENSIVE') return { display: '$10-25', estimate: 15, level: 1 };
+            if (level === 2 || level === 'PRICE_LEVEL_MODERATE') return { display: '$30-60', estimate: 45, level: 2 };
+            if (level === 3 || level === 'PRICE_LEVEL_EXPENSIVE') return { display: '$70-120', estimate: 90, level: 3 };
+            if (level === 4 || level === 'PRICE_LEVEL_VERY_EXPENSIVE') return { display: '$150+', estimate: 200, level: 4 };
         }
 
         // 2. Fallback: Type-Based Inference
-        if (types.includes('park')) return { display: 'Free', estimate: 0, level: 1 };
+        if (types.includes('park') || types.includes('natural_feature')) return { display: 'Free', estimate: 0, level: 1 };
         if (types.includes('church') || types.includes('place_of_worship')) return { display: 'Free', estimate: 0, level: 1 };
+        if (types.includes('museum') || types.includes('art_gallery')) return { display: '$20-35', estimate: 25, level: 2 };
+        if (types.includes('zoo') || types.includes('aquarium')) return { display: '$35-50', estimate: 45, level: 2 };
+        if (types.includes('amusement_park')) return { display: '$80-150', estimate: 100, level: 3 };
+        if (types.includes('tourist_attraction')) return { display: '$20-50', estimate: 35, level: 2 };
 
-        if (types.includes('museum') || types.includes('art_gallery')) return { display: '$15-30', estimate: 25, level: 2 };
-        if (types.includes('zoo') || types.includes('aquarium')) return { display: '$30-50', estimate: 40, level: 2 };
-        if (types.includes('amusement_park')) return { display: '$60-100', estimate: 80, level: 3 };
-
-        if (types.includes('bakery') || types.includes('cafe')) return { display: '$5-15', estimate: 10, level: 1 };
+        if (types.includes('bakery') || types.includes('cafe') || types.includes('coffee_shop')) return { display: '$5-15', estimate: 10, level: 1 };
         if (types.includes('bar') || types.includes('night_club')) return { display: '$20-60', estimate: 40, level: 2 };
-        if (types.includes('restaurant')) return { display: '$25-50', estimate: 35, level: 2 }; // Default restaurant
+        if (types.includes('restaurant') || types.includes('food')) return { display: '$25-75', estimate: 45, level: 2 };
 
-        if (types.includes('lodging')) return { display: '$100-300', estimate: 150, level: 3 };
+        if (types.includes('lodging') || types.includes('hotel')) return { display: '$120-250/nt', estimate: 180, level: 3 };
 
         // 3. Unknown Fallback
-        return { display: 'Ask for Price', estimate: 20, level: 2 };
+        return { display: 'Varies', estimate: 30, level: 2 };
     };
 
     const performSearch = async (query: string, locationOverride?: any) => {
@@ -219,7 +269,7 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
                                 service.getDistanceMatrix({
                                     origins: [baseLocation + ' in ' + currentCity],
                                     destinations: destinations,
-                                    travelMode: 'DRIVING',
+                                    travelMode: travelMode,
                                 }, (res: any, status: any) => {
                                     if (status === 'OK') resolve(res);
                                     else reject(status);
@@ -271,8 +321,8 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
 
     return (
         <div className="space-y-6 pb-24 animate-in fade-in">
-            {/* Large Weather Card */}
-            <div className="bg-gradient-to-br from-[#007AFF] to-[#0055B3] rounded-[32px] p-6 text-white shadow-2xl relative overflow-visible">
+            {/* Compact Weather Card */}
+            <div id="explore-weather" className="bg-gradient-to-br from-[#007AFF] to-[#0055B3] rounded-3xl p-4 text-white shadow-2xl relative overflow-visible">
                 {/* Cloud Decor */}
                 <div className="absolute -right-10 -top-10 text-white/10 pointer-events-none"><CloudRain size={200} /></div>
 
@@ -312,36 +362,36 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
                     )}
                 </div>
 
-                <div className="mt-6 flex justify-between items-end relative z-10">
+                <div className="mt-4 flex justify-between items-center relative z-10">
                     <div>
-                        <div className="text-7xl font-black tracking-tighter">{weather?.temp || '--'}°</div>
-                        <div className="text-xl font-medium opacity-90">{weather?.condition || 'Loading...'}</div>
-                        <div className="text-sm opacity-75">Feels like {weather ? (weather.feelsLike ?? weather.temp ?? '--') : '--'}°</div>
+                        <div className="flex items-end gap-2">
+                            <div className="text-4xl font-black tracking-tighter leading-none">{weather?.temp || '--'}°</div>
+                            <div className="text-base font-medium opacity-90 mb-0.5">{weather?.condition || 'Loading...'}</div>
+                        </div>
+                        <div className="text-xs opacity-75 mt-0.5">Feels like {weather ? (weather.feelsLike ?? weather.temp ?? '--') : '--'}°</div>
                     </div>
                     <div className="flex gap-2">
-                        <div className="bg-white/20 backdrop-blur-md p-2 rounded-2xl text-center min-w-[60px]">
-                            <Droplets size={14} className="mx-auto mb-1 opacity-80" />
-                            <div className="text-[10px] font-bold uppercase opacity-70">Hum</div>
-                            <div className="font-bold text-sm">{weather?.humidity}%</div>
+                        <div className="bg-white/20 backdrop-blur-md p-2 rounded-xl text-center min-w-[50px]">
+                            <Droplets size={12} className="mx-auto mb-1 opacity-80" />
+                            <div className="font-bold text-xs">{weather?.humidity}%</div>
                         </div>
-                        <div className="bg-white/20 backdrop-blur-md p-2 rounded-2xl text-center min-w-[60px]">
-                            <Wind size={14} className="mx-auto mb-1 opacity-80" />
-                            <div className="text-[10px] font-bold uppercase opacity-70">Wind</div>
-                            <div className="font-bold text-sm">{weather?.wind}</div>
+                        <div className="bg-white/20 backdrop-blur-md p-2 rounded-xl text-center min-w-[50px]">
+                            <Wind size={12} className="mx-auto mb-1 opacity-80" />
+                            <div className="font-bold text-xs">{weather?.wind}</div>
                         </div>
                     </div>
                 </div>
 
                 {/* Hourly Forecast */}
                 {weather?.hourly && weather.hourly.length > 0 && (
-                    <div className="mt-6 pt-4 border-t border-white/20 relative z-10">
-                        <div className="text-xs font-bold uppercase tracking-widest mb-3 opacity-80">Hourly Forecast</div>
-                        <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide snap-x">
+                    <div className="mt-3 pt-3 border-t border-white/20 relative z-10">
+                        <div className="text-xs font-bold uppercase tracking-widest mb-2 opacity-80">Hourly Forecast</div>
+                        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide snap-x">
                             {weather.hourly.map((hour, idx) => (
-                                <div key={idx} className="flex flex-col items-center min-w-[60px] bg-black/10 rounded-xl p-2 snap-center">
-                                    <span className="text-[10px] opacity-80 mb-1">{hour.time.replace(':00', '')}</span>
-                                    <span className="text-lg font-bold mb-1">{hour.temp}°</span>
-                                    <span className="text-[10px] uppercase font-bold text-brand-orange">{hour.condition.substring(0, 4)}</span>
+                                <div key={idx} className="flex flex-col items-center min-w-[50px] bg-black/10 rounded-xl p-1.5 snap-center">
+                                    <span className="text-[9px] opacity-80 mb-0.5">{hour.time.replace(':00', '')}</span>
+                                    <span className="text-sm font-bold mb-0.5">{hour.temp}°</span>
+                                    <span className="text-[9px] uppercase font-bold text-brand-orange">{hour.condition.substring(0, 4)}</span>
                                 </div>
                             ))}
                         </div>
@@ -350,16 +400,15 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
 
                 {/* Daily Forecast */}
                 {weather?.daily && weather.daily.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-white/20 relative z-10">
-                        <div className="text-xs font-bold uppercase tracking-widest mb-3 opacity-80">5-Day Forecast</div>
-                        <div className="space-y-2">
+                    <div className="mt-3 pt-2 border-t border-white/20 relative z-10">
+                        <div className="text-[10px] font-bold uppercase tracking-widest mb-2 opacity-80">5-Day Forecast</div>
+                        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide snap-x">
                             {weather.daily.map((day, idx) => (
-                                <div key={idx} className="flex justify-between items-center text-sm font-bold bg-black/10 rounded-lg px-3 py-2">
-                                    <span className="w-24">{new Date(day.date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                                    <span className="flex-1 text-center opacity-80 uppercase text-[10px] tracking-wider">{day.condition}</span>
-                                    <span className="w-20 text-right">
-                                        <span className="opacity-60">{day.minTemp}°</span> / {day.maxTemp}°
-                                    </span>
+                                <div key={idx} className="flex flex-col items-center min-w-[55px] bg-black/10 rounded-xl p-1.5 snap-center">
+                                    <span className="text-[9px] opacity-80 mb-0.5">{new Date(day.date).toLocaleDateString([], { weekday: 'short' })}</span>
+                                    <span className="text-xs font-bold mb-0.5">{day.maxTemp}°</span>
+                                    <span className="text-[8px] opacity-60 mb-0.5">{day.minTemp}°</span>
+                                    <span className="text-[8px] uppercase font-bold text-brand-orange whitespace-nowrap overflow-hidden text-ellipsis w-full text-center">{day.condition.substring(0, 5)}</span>
                                 </div>
                             ))}
                         </div>
@@ -369,34 +418,55 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
 
             {/* Search & Toggle */}
             <div className="space-y-3">
-                <div className="relative">
-                    <Search className="absolute left-4 top-3.5 text-gray-500" size={20} />
+                <div className="relative flex items-center">
+                    <Search className="absolute left-4 text-gray-500" size={20} />
                     <input
                         type="text"
-                        placeholder={`Find food, hotels in ${currentCity.split(',')[0]}...`}
+                        placeholder={`Search in ${currentCity.split(',')[0]} (Press Enter)`}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && performSearch(searchQuery)}
-                        className="w-full bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-2xl py-3.5 pl-12 pr-4 text-gray-900 dark:text-white focus:border-brand-orange outline-none transition-all shadow-sm"
+                        className="w-full bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-2xl py-3.5 pl-12 pr-24 text-gray-900 dark:text-white focus:border-brand-orange outline-none transition-all shadow-sm"
                     />
+                    <button 
+                        onClick={() => performSearch(searchQuery)}
+                        className="absolute right-2 bg-brand-orange hover:bg-orange-600 text-white text-xs font-bold px-4 py-2 rounded-xl transition"
+                    >
+                        Search
+                    </button>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="flex-1 relative">
-                        <MapPin className="absolute left-4 top-3 text-brand-orange" size={16} />
-                        <input
-                            type="text"
-                            placeholder="Base Location (e.g. Hotel Name)"
-                            value={baseLocation}
-                            onChange={(e) => setBaseLocation(e.target.value)}
-                            className="w-full bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl py-2.5 pl-12 pr-4 text-sm text-gray-900 dark:text-white focus:border-brand-orange outline-none transition-all shadow-sm"
-                        />
+                <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                        <div className="flex-1 relative">
+                            <MapPin className="absolute left-4 top-3 text-brand-orange" size={16} />
+                            <input
+                                type="text"
+                                placeholder="Base Location (e.g. Hotel Name)"
+                                value={baseLocation}
+                                onChange={(e) => setBaseLocation(e.target.value)}
+                                className="w-full bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl py-2.5 pl-12 pr-4 text-sm text-gray-900 dark:text-white focus:border-brand-orange outline-none transition-all shadow-sm"
+                            />
+                        </div>
+                        <div className="w-1/3 relative">
+                            <select
+                                value={travelMode}
+                                onChange={(e) => setTravelMode(e.target.value)}
+                                className="w-full bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl py-2.5 pl-4 pr-8 text-sm text-gray-900 dark:text-white focus:border-brand-orange outline-none transition-all shadow-sm appearance-none cursor-pointer"
+                            >
+                                <option value="DRIVING">Driving</option>
+                                <option value="TRANSIT">Transit</option>
+                                <option value="WALKING">Walking</option>
+                                <option value="BICYCLING">Bicycling</option>
+                            </select>
+                            <ChevronDown className="absolute right-3 top-3 text-gray-500 pointer-events-none" size={16} />
+                        </div>
                     </div>
-                    <div className="flex-1 relative">
+                    <div className="relative">
                         <select
                             value={dietaryFilter}
                             onChange={(e) => setDietaryFilter(e.target.value)}
-                            className="w-full bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl py-2.5 pl-4 pr-4 text-sm text-gray-900 dark:text-white focus:border-brand-orange outline-none transition-all shadow-sm appearance-none cursor-pointer"
+                            className="w-full bg-white dark:bg-[#151921] border border-gray-200 dark:border-white/10 rounded-xl py-2.5 pl-4 pr-8 text-sm text-gray-900 dark:text-white focus:border-brand-orange outline-none transition-all shadow-sm appearance-none cursor-pointer"
                         >
                             <option value="">Any Diet</option>
                             <option value="Vegetarian">Vegetarian</option>
@@ -440,6 +510,14 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
 
                     {isSearching ? (
                         <div className="py-12 flex justify-center"><Loader2 size={32} className="animate-spin text-brand-orange" /></div>
+                    ) : places.length === 0 ? (
+                        <div className="py-16 text-center bg-gray-50 dark:bg-white/5 rounded-2xl border border-dashed border-gray-300 dark:border-white/10">
+                            <Search className="mx-auto text-gray-300 dark:text-white/20 mb-3" size={32} />
+                            <h4 className="text-gray-900 dark:text-white font-bold text-base mb-1">Ready to explore?</h4>
+                            <p className="text-gray-500 dark:text-gray-400 text-xs px-8">
+                                Type a restaurant, hotel, or attraction in the search bar above and click "Search" to find places.
+                            </p>
+                        </div>
                     ) : places.map((place, i) => (
                         <div key={place.id} className="bg-white dark:bg-[#151921] p-3 rounded-2xl border border-gray-200 dark:border-white/5 flex gap-4 group hover:border-brand-orange/30 transition shadow-sm relative overflow-hidden">
 
@@ -453,8 +531,16 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
                                     <div className="flex justify-between items-start">
                                         <h4 className="text-gray-900 dark:text-white font-bold text-lg leading-tight">{place.name}</h4>
                                         <div className="flex gap-2">
-                                            <button onClick={() => toggleSavePlace(place)} className={`p-2 rounded-full transition shrink-0 active:scale-95 ${savedPlaces.some(p => p.id === place.id) ? 'bg-brand-orange text-white' : 'bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-white hover:bg-brand-orange hover:text-white'}`}><Bookmark size={16} /></button>
-                                            <button onClick={() => onAddToBudget({ id: place.id, name: place.name, cost: place.priceEstimate, category: place.category })} className="p-2 bg-gray-100 dark:bg-white/10 rounded-full text-gray-500 dark:text-white hover:bg-brand-orange transition shrink-0 active:scale-95"><Plus size={16} /></button>
+                                            <button 
+                                                onClick={() => {
+                                                    toggleSavePlace(place);
+                                                    setPlaceToSave(place);
+                                                }} 
+                                                className={`px-3 py-1.5 rounded-full font-bold text-xs flex items-center gap-1.5 transition active:scale-95 ${savedPlaces.some(p => p.id === place.id) ? 'bg-brand-orange text-white' : 'bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-white hover:bg-brand-orange hover:text-white'}`}
+                                            >
+                                                <Bookmark size={14} className={savedPlaces.some(p => p.id === place.id) ? 'fill-current' : ''} />
+                                                {savedPlaces.some(p => p.id === place.id) ? 'Saved' : 'Save to Trip'}
+                                            </button>
                                         </div>
                                     </div>
                                     <p className="text-gray-500 dark:text-gray-400 text-xs mt-1 line-clamp-1">{place.description}</p>
@@ -530,16 +616,61 @@ export const CityView: React.FC<CityViewProps> = ({ onAddToBudget, initialCity =
             ) : (
                 <div className="w-full aspect-[3/4] bg-white dark:bg-[#151921] rounded-3xl border border-gray-200 dark:border-white/10 overflow-hidden relative shadow-xl">
                     <div ref={mapRef} className="w-full h-full" />
-                    <button onClick={() => performSearch("Attractions")} className="absolute top-4 left-1/2 -translate-x-1/2 bg-brand-dark/90 backdrop-blur text-white px-4 py-2 rounded-full text-xs font-bold shadow-xl border border-white/20 flex items-center gap-2">
+                    <button onClick={() => performSearch(searchQuery || "Attractions")} className="absolute top-4 left-1/2 -translate-x-1/2 bg-brand-dark/90 backdrop-blur text-white px-4 py-2 rounded-full text-xs font-bold shadow-xl border border-white/20 flex items-center gap-2">
                         <Search size={14} /> Search This Area
                     </button>
                 </div>
             )
             }
 
-            <div className="text-center py-4 text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-widest">
-                Places data provided by Google
-            </div>
+            {/* Trip Selection Modal */}
+            {placeToSave && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-[#151921] rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl border border-gray-200 dark:border-white/10 p-5 space-y-4">
+                        <div className="flex justify-between items-center">
+                            <h3 className="font-bold text-lg text-gray-900 dark:text-white">Save {placeToSave.name} to Trip</h3>
+                            <button onClick={() => setPlaceToSave(null)} className="p-2 text-gray-400 hover:text-white transition"><Trash2 size={20}/></button>
+                        </div>
+                        
+                        {userTrips.length === 0 ? (
+                            <p className="text-sm text-gray-500">You don't have any active trips. Create one in the Plans tab first!</p>
+                        ) : (
+                            <div className="space-y-2 max-h-60 overflow-y-auto">
+                                {userTrips.map(trip => (
+                                    <button 
+                                        key={trip.id}
+                                        onClick={async () => {
+                                            const newItem = { id: Date.now().toString(), type: placeToSave.category as any, label: placeToSave.name, planned: placeToSave.priceEstimate };
+                                            const updatedBudget = [...(trip.budget_categories || []), newItem];
+                                            const updatedPlaces = [...(trip.places || []), placeToSave];
+                                            
+                                            const aiNote = {
+                                                id: Date.now().toString(),
+                                                tripName: trip.name,
+                                                city: trip.name,
+                                                stateCountry: '',
+                                                title: `Itinerary: ${placeToSave.name}`,
+                                                content: `I've added ${placeToSave.name} to your itinerary! It's a highly-rated ${placeToSave.category.toLowerCase()} (${placeToSave.rating} stars). Expected cost is around ${placeToSave.priceDisplay}. Be sure to check it out!`,
+                                                date: new Date(),
+                                                isAiGenerated: true
+                                            };
+                                            const updatedNotes = [...(trip.notes || []), aiNote];
+
+                                            await updateTrip(trip.id, { budget_categories: updatedBudget, places: updatedPlaces, notes: updatedNotes });
+                                            setPlaceToSave(null);
+                                            alert(`Added ${placeToSave.name} to ${trip.name}! Apollo also created an itinerary note for you.`);
+                                        }}
+                                        className="w-full text-left px-4 py-3 rounded-xl bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:border-brand-orange transition active:scale-95 text-sm font-bold dark:text-white"
+                                    >
+                                        {trip.name}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        <button onClick={() => setPlaceToSave(null)} className="w-full py-3 bg-gray-200 dark:bg-white/10 text-gray-900 dark:text-white rounded-xl font-bold text-sm transition mt-2">Close</button>
+                    </div>
+                </div>
+            )}
         </div >
     );
-};
+});

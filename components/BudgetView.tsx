@@ -13,6 +13,7 @@ interface BudgetViewProps {
 export const BudgetView: React.FC<BudgetViewProps> = ({ items, onRemoveItem, budgetLimit, onUpdateLimit }) => {
  const [animate, setAnimate] = useState(false);
  const [tripDays, setTripDays] = useState(5); // Default trip length in days for calculation
+ const [enforceBudget, setEnforceBudget] = useState(false);
 
  useEffect(() => {
    setAnimate(true);
@@ -73,9 +74,21 @@ export const BudgetView: React.FC<BudgetViewProps> = ({ items, onRemoveItem, bud
                      <span className="text-xs text-gray-500 uppercase tracking-widest font-bold mt-1">Spent</span>
                  </div>
             </div>
-            <div className={`mt-6 text-sm font-bold px-4 py-1.5 rounded-full ${remaining < 0 ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400' : 'bg-green-100 text-green-600 dark:bg-green-500/20 dark:text-green-400'}`}>
-                ${Math.abs(remaining)} {remaining < 0 ? 'Over Budget' : 'Left'}
-            </div>
+             <div className={`mt-6 text-sm font-bold px-4 py-1.5 rounded-full ${remaining < 0 ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400' : 'bg-green-100 text-green-600 dark:bg-green-500/20 dark:text-green-400'}`}>
+                 {remaining < 0 ? `-$${Math.abs(remaining)} Over Budget` : `Surplus: +$${remaining}`}
+             </div>
+             
+             {/* Enforce Budget Toggle */}
+             <div className="mt-4 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 font-bold bg-white/50 dark:bg-white/5 px-3 py-1.5 rounded-full border border-gray-200 dark:border-white/10">
+                 <input 
+                     type="checkbox" 
+                     id="enforceBudget" 
+                     checked={enforceBudget} 
+                     onChange={(e) => setEnforceBudget(e.target.checked)}
+                     className="accent-brand-orange w-4 h-4 rounded cursor-pointer"
+                 />
+                 <label htmlFor="enforceBudget" className="cursor-pointer">Enforce Allocated Budget</label>
+             </div>
         </div>
 
         {/* Daily Allowance Insight */}
@@ -128,8 +141,8 @@ export const BudgetView: React.FC<BudgetViewProps> = ({ items, onRemoveItem, bud
            <div className="space-y-2">
                {items.map((item) => (
                <div key={item.id} className="flex items-center justify-between bg-white dark:bg-[#151921] p-4 rounded-2xl border border-gray-200 dark:border-white/5 hover:border-brand-orange/50 transition group shadow-sm">
-                   <div className="flex items-center gap-4">
-                       <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                   <div className="flex items-center gap-4 min-w-0">
+                       <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
                            item.category === 'Flight' ? 'bg-orange-100 text-brand-orange dark:bg-brand-orange/20' : 
                            item.category === 'Hotel' ? 'bg-purple-100 text-purple-500 dark:bg-purple-500/20' :
                            item.category === 'Food' ? 'bg-green-100 text-green-500 dark:bg-green-500/20' :
@@ -137,14 +150,14 @@ export const BudgetView: React.FC<BudgetViewProps> = ({ items, onRemoveItem, bud
                        }`}>
                            {getCategoryIcon(item.category)}
                        </div>
-                       <div>
-                           <div className="font-bold text-gray-900 dark:text-white text-sm">{item.name}</div>
+                       <div className="min-w-0">
+                           <div className="font-bold text-gray-900 dark:text-white text-sm truncate">{item.name}</div>
                            <div className="text-xs text-gray-500 font-medium">{item.category}</div>
                        </div>
                    </div>
-                   <div className="flex items-center gap-3">
+                   <div className="flex items-center gap-3 shrink-0">
                        <span className="font-mono font-bold text-gray-900 dark:text-white text-lg">${item.cost}</span>
-                       <button onClick={() => onRemoveItem(item.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-full transition">
+                       <button onClick={() => onRemoveItem(item.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-full transition shrink-0">
                            <Trash2 size={16}/>
                        </button>
                    </div>

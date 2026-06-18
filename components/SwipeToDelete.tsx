@@ -28,8 +28,8 @@ export const SwipeToDelete: React.FC<SwipeToDeleteProps> = ({ children, onDelete
   return (
     <div className={`relative overflow-hidden rounded-2xl ${className}`}>
       {/* Red Background Layer */}
-      <div className="absolute inset-0 bg-red-500 flex items-center justify-end pr-6 shadow-inner">
-        <div className="flex flex-col items-center justify-center gap-1 opacity-80 text-white">
+      <div className="absolute inset-0 bg-red-950 flex items-center justify-end pr-4 shadow-inner">
+        <div className="flex flex-col items-center justify-center gap-1 opacity-90 text-red-400">
           <Trash2 size={24} />
           <span className="text-[10px] font-bold uppercase tracking-wider">Delete</span>
         </div>

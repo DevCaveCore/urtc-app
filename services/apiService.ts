@@ -1,6 +1,6 @@
 
 import { Weather, Place, Flight, NewsArticle, FlightPosition, FlightSchedule, GateInfo, AustralianAirspace, HourlyForecast, DailyForecast, AirportConditions } from '../types';
-import { fetchGeminiNews } from './geminiService';
+import { fetchGeminiNews, fetchFutureFlightFromGemini } from './geminiService';
 import { API_KEYS } from '../config';
 
 const handleApiError = (error: any, fallback: any) => {
@@ -74,9 +74,10 @@ export const fetchRealPlaces = async (city: string, lat?: number, lng?: number):
   return [];
 };
 
-export const fetchRealFlights = async (query: string, flightDate?: string, airlineFilter?: string): Promise<Flight[]> => {
+export const fetchRealFlights = async (query: string, flightDate?: string, airlineFilter?: string, destQuery?: string): Promise<Flight[]> => {
   try {
-    const q = (query || "DL1182").toUpperCase().replace(/\s/g, '');
+    const origin = query ? query.toUpperCase().replace(/\s/g, '') : null;
+    const dest = destQuery ? destQuery.toUpperCase().replace(/\s/g, '') : null;
     let url = "";
     
     let isHistorical = false;
@@ -94,15 +95,27 @@ export const fetchRealFlights = async (query: string, flightDate?: string, airli
         }
     }
 
-    // Smart Query Parsing: If it has digits, it's a flight ident (DL1182). Else, it's an airport code (ATL).
-    const hasDigits = /\d/.test(q);
     const basePath = isHistorical ? "/aeroapi/history" : "/aeroapi";
 
-    if (hasDigits) {
-      url = `${basePath}/flights/${q}${dateParams}`;
-    } else {
-      const airportCode = q.length === 3 ? `K${q}` : q; 
+    if (origin && /\d/.test(origin)) {
+      // It's a flight ident (DL1182)
+      url = `${basePath}/flights/${origin}${dateParams}`;
+    } else if (origin && dest) {
+      // Both origin and dest provided
+      const airportCode = origin.length === 3 ? `K${origin}` : origin; 
+      const destCode = dest.length === 3 ? `K${dest}` : dest;
+      url = `${basePath}/airports/${airportCode}/flights/to/${destCode}${dateParams}`;
+    } else if (origin && !dest) {
+      // Only origin provided (Departures)
+      const airportCode = origin.length === 3 ? `K${origin}` : origin; 
       url = `${basePath}/airports/${airportCode}/flights/${isHistorical ? 'departures' : 'scheduled_departures'}${dateParams}`;
+    } else if (!origin && dest) {
+      // Only dest provided (Arrivals)
+      const destCode = dest.length === 3 ? `K${dest}` : dest;
+      url = `${basePath}/airports/${destCode}/flights/${isHistorical ? 'arrivals' : 'scheduled_arrivals'}${dateParams}`;
+    } else {
+      // Fallback
+      url = `${basePath}/flights/DL1182${dateParams}`;
     }
 
     const response = await fetch(url, {
@@ -122,6 +135,11 @@ export const fetchRealFlights = async (query: string, flightDate?: string, airli
             const f = rawFlight.segments ? rawFlight.segments[0] : rawFlight;
             return f.operator === airlineFilter || (f.ident && f.ident.startsWith(airlineFilter));
         });
+    }
+
+    if (flightsArray.length === 0 && origin && /\d/.test(origin) && flightDate) {
+        console.log("AeroAPI returned no results. Falling back to Apollo Google Flights prediction...");
+        return await fetchFutureFlightFromGemini(origin, flightDate);
     }
 
     return flightsArray.map((rawFlight: any, i: number) => {
@@ -159,14 +177,44 @@ export const fetchRealFlights = async (query: string, flightDate?: string, airli
     });
   } catch (error) {
     console.error("fetchRealFlights error:", error);
+    
+    // Ultimate fallback if FlightAware completely fails and we have a date
+    if (query && /\d/.test(query) && flightDate) {
+      console.log("AeroAPI failed completely. Falling back to Apollo prediction...");
+      return await fetchFutureFlightFromGemini(query.toUpperCase().replace(/\s/g, ''), flightDate);
+    }
+    
     return [];
   }
 };
 
 export const fetchRandomFlight = async (): Promise<Flight | null> => {
   try {
+    let targetAirport = 'KATL'; // Fallback
+    try {
+        const ipRes = await fetch('https://ipapi.co/json/');
+        if (ipRes.ok) {
+            const ipData = await ipRes.json();
+            const regionalMap: Record<string, string> = {
+                'CA': 'KLAX', 'NY': 'KJFK', 'TX': 'KDFW', 'FL': 'KMIA', 
+                'IL': 'KORD', 'GA': 'KATL', 'WA': 'KSEA', 'CO': 'KDEN',
+                'NV': 'KLAS', 'MA': 'KBOS', 'PA': 'KPHL', 'AZ': 'KPHX',
+                'ENG': 'EGLL', 'IDF': 'LFPG', 'HES': 'EDDF', 'TOK': 'RJTT', 'NSW': 'YSSY'
+            };
+            if (ipData.region_code && regionalMap[ipData.region_code]) {
+                targetAirport = regionalMap[ipData.region_code];
+            } else if (ipData.country === 'GB') targetAirport = 'EGLL';
+            else if (ipData.country === 'FR') targetAirport = 'LFPG';
+            else if (ipData.country === 'JP') targetAirport = 'RJTT';
+            else if (ipData.country === 'AU') targetAirport = 'YSSY';
+            else if (ipData.country === 'DE') targetAirport = 'EDDF';
+        }
+    } catch (e) {
+        console.warn("Could not determine geographic location for random flight, using KATL.");
+    }
+
     const response = await fetch(
-      `/aeroapi/airports/KATL/flights/scheduled_departures`,
+      `/aeroapi/airports/${targetAirport}/flights/scheduled_departures`,
       {
         headers: {
           'x-apikey': API_KEYS.FLIGHTAWARE,
@@ -249,7 +297,7 @@ export const fetchTravelNews = async (query: string): Promise<NewsArticle[]> => 
 
 export const fetchSchedules = async (origin?: string, dest?: string, flightDate?: string, airlineFilter?: string): Promise<FlightSchedule[]> => {
   try {
-    if (!origin) return [];
+    if (!origin && !dest) return [];
     
     let isHistorical = false;
     let dateParams = "";
@@ -266,10 +314,14 @@ export const fetchSchedules = async (origin?: string, dest?: string, flightDate?
     }
 
     const basePath = isHistorical ? "/aeroapi/history" : "/aeroapi";
-    
-    let url = `${basePath}/airports/${origin}/flights/${isHistorical ? 'departures' : 'scheduled_departures'}${dateParams}`;
-    if (dest) {
+    let url = "";
+
+    if (origin && dest) {
         url = `${basePath}/airports/${origin}/flights/to/${dest}${dateParams}`;
+    } else if (origin && !dest) {
+        url = `${basePath}/airports/${origin}/flights/${isHistorical ? 'departures' : 'scheduled_departures'}${dateParams}`;
+    } else if (!origin && dest) {
+        url = `${basePath}/airports/${dest}/flights/${isHistorical ? 'arrivals' : 'scheduled_arrivals'}${dateParams}`;
     }
 
     const response = await fetch(url, {
