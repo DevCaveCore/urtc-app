@@ -186,6 +186,10 @@ export interface Trip {
   end_date?: string;
   created_at: string;
   archived?: boolean;
+  budget_limit?: number;
+  destination?: string;
+  travelers_count?: number;
+  duration_days?: number;
   notes: Note[];
   budget_categories: BudgetCategory[];
   passes: Pass[];

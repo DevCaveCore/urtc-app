@@ -290,3 +290,45 @@ export const fetchFutureFlightFromGemini = async (flightNumber: string, date: st
         return [];
     }
 };
+
+export const generateBudgetInsight = async (trip: any): Promise<string> => {
+    const client = getClient();
+    if (!client) return "Apollo couldn't connect. API Key missing.";
+
+    const destination = trip.destination || "Unknown Destination";
+    const budgetLimit = trip.budget_limit || 0;
+    const durationDays = trip.duration_days || 1;
+    const travelers = trip.travelers_count || 1;
+    
+    const items = trip.budget_categories || [];
+    const totalSpent = items.reduce((sum: number, item: any) => sum + (item.planned || 0), 0);
+    const remaining = budgetLimit - totalSpent;
+
+    const itemsStr = items.map((i: any) => `- ${i.label}: $${i.planned}`).join("\n");
+
+    const prompt = `You are Apollo AI, a highly intelligent and friendly travel companion. 
+The user is planning a trip to ${destination} for ${durationDays} days with ${travelers} traveler(s).
+Their total budget is $${budgetLimit}. They have spent $${totalSpent} so far, leaving $${remaining}.
+
+Here are their specific expenses:
+${itemsStr || "No expenses added yet."}
+
+Analyze this budget considering the typical costs in ${destination}. 
+- Are they over or under budget? 
+- Will $${remaining} be enough for the remaining days for ${travelers} people? 
+- What typical costs in ${destination} (like food or transport) should they watch out for?
+
+Provide a concise, helpful, and slightly playful insight (1-2 paragraphs max).`;
+
+    try {
+        const model = client.models;
+        const response = await model.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt
+        });
+        return response.text || "Apollo couldn't generate an insight right now.";
+    } catch (error) {
+        console.error("Budget insight error:", error);
+        return "Apollo encountered an error generating your budget insight.";
+    }
+};

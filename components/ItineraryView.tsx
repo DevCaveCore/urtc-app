@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, FileText, WifiOff, Heart, Cookie, PenLine, Calculator, QrCode, X, ChevronDown, Plane, Hotel, Ticket, Train, Sparkles, AlertCircle, Check, Loader2, Utensils, ShoppingBag, MapPin, Globe, Calendar, Lock, Download, ExternalLink, Share, Wine, ChevronLeft, CalendarPlus, FileOutput, Archive, RotateCcw } from 'lucide-react';
 import { Note, BudgetCategory, Pass, UserTier, Trip, TripFlight, UserAccount } from '../types';
 import { fetchTrips, createTrip, updateTrip, deleteTrip, addFlightToTrip, deleteFlightFromTrip } from '../services/tripService';
-import { getBudgetPlan, generateAiNote, generateTripStory } from '../services/geminiService';
+import { getBudgetPlan, generateAiNote, generateTripStory, generateBudgetInsight } from '../services/geminiService';
 import { getLocationSuggestions } from '../services/mockService';
 import { SwipeToDelete } from './SwipeToDelete';
 
@@ -299,6 +299,8 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
     // Budget State
     const [newBudgetLabel, setNewBudgetLabel] = useState('');
     const [newBudgetCost, setNewBudgetCost] = useState('');
+    const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
+    const [budgetInsight, setBudgetInsight] = useState<string | null>(null);
 
     const handleAddNote = async () => {
         if (!newNoteTitle || !newNoteContent) return;
@@ -350,6 +352,31 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
     };
     
     const totalSpent = (trip.budget_categories || []).reduce((acc: number, curr: any) => acc + (curr.planned || 0), 0);
+
+    const handleGenerateInsight = async () => {
+        setIsGeneratingInsight(true);
+        const insight = await generateBudgetInsight(trip);
+        setBudgetInsight(insight);
+        setIsGeneratingInsight(false);
+    };
+
+    const handleSaveInsightToNotes = async () => {
+        if (!budgetInsight) return;
+        const newNote = { 
+            id: Date.now().toString(), 
+            title: 'Apollo Budget Insight', 
+            content: budgetInsight, 
+            date: new Date(), 
+            city: trip.destination || '', 
+            stateCountry: '', 
+            tripName: trip.name 
+        };
+        const updatedNotes = [newNote, ...(trip.notes || [])];
+        await updateTrip(trip.id, { notes: updatedNotes });
+        setBudgetInsight(null);
+        alert('Insight saved to Notes!');
+        onUpdate();
+    };
 
     const generateICS = (flight: TripFlight) => {
         // Build basic ICS file
@@ -499,10 +526,37 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
             {subTab === 'budget' && (
                 <div className="space-y-4 px-2">
                     <div className="bg-[#151921] p-5 rounded-3xl border border-white/10 shadow-sm relative overflow-hidden">
-                        <div className="flex justify-between items-end mb-2 relative z-10">
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-brand-orange/5 rounded-full blur-3xl pointer-events-none" />
+                        <h4 className="font-bold text-sm text-white mb-3">Trip Context</h4>
+                        <div className="grid grid-cols-2 gap-3 mb-4 relative z-10">
                             <div>
-                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Total Planned</p>
+                                <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block mb-1">Destination</label>
+                                <input type="text" placeholder="e.g. Tokyo" value={trip.destination || ''} onChange={e => updateTrip(trip.id, { destination: e.target.value }).then(onUpdate)} className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-brand-orange outline-none transition" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block mb-1">Duration (Days)</label>
+                                <input type="number" min="1" value={trip.duration_days || ''} onChange={e => updateTrip(trip.id, { duration_days: Number(e.target.value) }).then(onUpdate)} className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-brand-orange outline-none transition" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block mb-1">Travelers</label>
+                                <input type="number" min="1" value={trip.travelers_count || ''} onChange={e => updateTrip(trip.id, { travelers_count: Number(e.target.value) }).then(onUpdate)} className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-brand-orange outline-none transition" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-brand-orange uppercase tracking-widest font-bold block mb-1">Budget Limit ($)</label>
+                                <input type="number" min="0" placeholder="$0" value={trip.budget_limit || ''} onChange={e => updateTrip(trip.id, { budget_limit: Number(e.target.value) }).then(onUpdate)} className="w-full bg-brand-orange/10 border border-brand-orange/30 rounded-xl px-3 py-2 text-sm text-brand-orange font-bold focus:border-brand-orange outline-none transition" />
+                            </div>
+                        </div>
+
+                        <div className="flex justify-between items-end relative z-10 border-t border-white/10 pt-4 mt-2">
+                            <div>
+                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Total Spent / Planned</p>
                                 <div className="text-3xl font-black text-white">${(totalSpent || 0).toLocaleString()}</div>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Remaining</p>
+                                <div className={`text-lg font-bold ${(trip.budget_limit || 0) - totalSpent < 0 ? 'text-red-500' : 'text-green-500'}`}>
+                                    ${((trip.budget_limit || 0) - totalSpent).toLocaleString()}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -542,6 +596,27 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
                                 </div>
                             </SwipeToDelete>
                         ))}
+                    </div>
+
+                    <div className="mt-6">
+                        <button onClick={handleGenerateInsight} disabled={isGeneratingInsight} className="w-full py-3 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-2xl font-bold shadow-lg active:scale-95 transition flex items-center justify-center gap-2">
+                            {isGeneratingInsight ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                            Ask Apollo for Budget Insights
+                        </button>
+                        
+                        {budgetInsight && (
+                            <div className="mt-4 bg-purple-500/10 border border-purple-500/20 p-5 rounded-3xl animate-in fade-in slide-in-from-top-4">
+                                <div className="flex items-center gap-2 mb-3 text-purple-400 font-bold">
+                                    <Sparkles size={16} /> Apollo's Analysis
+                                </div>
+                                <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap mb-4">
+                                    {budgetInsight}
+                                </div>
+                                <button onClick={handleSaveInsightToNotes} className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl text-xs font-bold transition flex justify-center items-center gap-2">
+                                    <FileText size={14} /> Save to Notes
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
