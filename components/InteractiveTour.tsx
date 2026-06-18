@@ -64,7 +64,7 @@ export const InteractiveTour: React.FC<InteractiveTourProps> = ({ run, onFinish,
             // Tour is over
             onFinish();
             setStepIndex(0);
-        } else if (type === 'step:after' || type === 'target:notFound') {
+        } else if (type === 'step:after') {
             // Update step to advance the tour
             const nextStepIndex = index + (action === 'prev' ? -1 : 1);
             
@@ -76,7 +76,10 @@ export const InteractiveTour: React.FC<InteractiveTourProps> = ({ run, onFinish,
             if (nextStepIndex === 5) setTab(Tab.Itinerary);
             if (nextStepIndex === 6) setTab(Tab.Wander);
 
-            setStepIndex(nextStepIndex);
+            // Give React a moment to change tabs and render the target element before advancing the tour
+            setTimeout(() => {
+                setStepIndex(nextStepIndex);
+            }, 250);
         }
     };
 
