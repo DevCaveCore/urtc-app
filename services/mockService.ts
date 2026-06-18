@@ -17,8 +17,9 @@ export const AIRLINE_CODES = [
   { code: "EK", icao: "UAE", name: "Emirates" },
   { code: "QF", icao: "QFA", name: "Qantas" }
 ];
+import { EXTENDED_AIRPORTS } from './airportsData';
 
-const AIRPORTS = [
+const BASE_AIRPORTS = [
  { code: "ATL", city: "Atlanta", name: "Hartsfield-Jackson", lat: 33.64, lng: -84.42 },
  { code: "LAX", city: "Los Angeles", name: "Los Angeles Intl", lat: 33.94, lng: -118.40 },
  { code: "JFK", city: "New York", name: "John F. Kennedy", lat: 40.64, lng: -73.77 },
@@ -43,6 +44,8 @@ const AIRPORTS = [
  { code: "IAH", city: "Houston", name: "George Bush", lat: 29.99, lng: -95.33 },
  { code: "BOS", city: "Boston", name: "Logan Intl", lat: 42.36, lng: -71.00 }
 ];
+
+const AIRPORTS = [...BASE_AIRPORTS, ...EXTENDED_AIRPORTS];
 
 const DELAY_REASONS: DelayInsight[] = [
  { reason: "Late Incoming Aircraft", confidence: 85, description: "Your plane is arriving late from its previous trip." },
