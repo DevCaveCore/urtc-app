@@ -52,16 +52,12 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
  };
 
  const handleCancelSubscription = () => {
-    // Generate mailto link
-    const subject = encodeURIComponent(`Subscription Cancellation: ${cancelReason}`);
-    const body = encodeURIComponent(`Reason: ${cancelReason}\n\nAdditional Feedback: ${cancelFeedback}\n\nUser ID: ${currentUser.id}`);
-    window.location.href = `mailto:Feedback@Cavecoredynamics.org?subject=${subject}&body=${body}`;
-    
-    // Simulate local downgrade
+    // Simulate local downgrade (In-App Cancellation)
     const downgradedUser = { ...currentUser, tier: UserTier.Free };
     onUserUpdate(downgradedUser);
     setShowCancelModal(false);
     setSelectedPlan(null);
+    alert('Your subscription has been successfully cancelled.');
  };
 
  const getFeatures = (tier: string) => {
@@ -382,9 +378,16 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
                     {selectedPlan === UserTier.Diamond && (
                         <div className="mt-6 space-y-2 border-t border-white/10 pt-4">
                             <h4 className="text-sm font-bold text-white mb-2">Choose your billing cycle:</h4>
-                            <a href="https://buy.stripe.com/3cIaEZcrV6NY4MadX87IY06" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-center text-white text-sm font-bold transition">Weekly: $4.99/wk</a>
-                            <a href="https://buy.stripe.com/3cIbJ3dvZ4FQceCaKW7IY00" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-brand-orange/50 rounded-xl text-center text-white text-sm font-bold shadow-[0_0_15px_rgba(255,92,26,0.2)] transition">Monthly: $13.99/mo (Recommended)</a>
-                            <a href="https://buy.stripe.com/6oUcN70JdgoyguS8CO7IY05" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-center text-white text-sm font-bold transition">Annually: $129.99/yr</a>
+                            <a href="https://buy.stripe.com/3cIaEZcrV6NY4MadX87IY06" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-center text-white text-sm font-bold transition">
+                                Weekly: {new Intl.NumberFormat(navigator.language || 'en-US', { style: 'currency', currency: 'USD' }).format(4.99)}/wk
+                            </a>
+                            <a href="https://buy.stripe.com/3cIbJ3dvZ4FQceCaKW7IY00" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-brand-orange/50 rounded-xl text-center text-white text-sm font-bold shadow-[0_0_15px_rgba(255,92,26,0.2)] transition">
+                                Monthly: {new Intl.NumberFormat(navigator.language || 'en-US', { style: 'currency', currency: 'USD' }).format(13.99)}/mo (Recommended)
+                            </a>
+                            <a href="https://buy.stripe.com/6oUcN70JdgoyguS8CO7IY05" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-center text-white text-sm font-bold transition">
+                                Annually: {new Intl.NumberFormat(navigator.language || 'en-US', { style: 'currency', currency: 'USD' }).format(129.99)}/yr
+                            </a>
+                            <p className="text-[10px] text-center text-gray-500 mt-2">Prices are localized at checkout based on your region.</p>
                         </div>
                     )}
                 </div>

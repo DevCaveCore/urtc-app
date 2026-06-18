@@ -95,7 +95,7 @@ export const fetchRealFlights = async (query: string, flightDate?: string, airli
         }
     }
 
-    const basePath = isHistorical ? "/aeroapi/history" : "/aeroapi";
+    const basePath = "/aeroapi";
 
     if (origin && /\d/.test(origin)) {
       // It's a flight ident (DL1182)
