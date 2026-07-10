@@ -141,7 +141,12 @@ export const resolveAirportCode = (query: string): string | null => {
 };
 
 export const getAirportCoords = (code: string) => {
-   const airport = AIRPORTS.find(a => a.code === code);
+   const c = (code || '').toUpperCase();
+   let airport = AIRPORTS.find(a => a.code === c);
+   // ICAO fallback: US airports are the IATA code with a K prefix (KATL -> ATL)
+   if (!airport && c.length === 4 && c.startsWith('K')) {
+      airport = AIRPORTS.find(a => a.code === c.slice(1));
+   }
    return airport ? { lat: airport.lat, lng: airport.lng } : { lat: 0, lng: 0 };
 };
 

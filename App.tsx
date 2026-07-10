@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plane, Building2, Moon, Sun, Mic, Info, Notebook, WifiOff, Home, X, Clock, Calendar, Shield, Globe, Map, MapPinOff } from 'lucide-react';
+import { Plane, Building2, Moon, Sun, Mic, Info, Notebook, WifiOff, Home, X, Clock, Calendar, Shield, Globe, Map, MapPinOff, Settings } from 'lucide-react';
 import { useSwipeable } from 'react-swipeable';
 import { HomeView } from './components/HomeView';
 import { Tab, BudgetItem, UserTier, Note, Theme, Pass, Flight, UserAccount } from './types';
@@ -14,12 +14,13 @@ import { DynamicIsland } from './components/DynamicIsland';
 import { AboutView } from './components/AboutView';
 import { DiamondTutorialOverlay } from './components/DiamondTutorialOverlay';
 import { TutorialOverlay } from './components/TutorialOverlay';
-import { InterstitialAd } from './components/InterstitialAd';
-import { getActiveUser, logout, setActiveUser } from './services/authService';
+import { getActiveUser, setActiveUser } from './services/authService';
+import { auth, db } from './services/firebaseClient';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import { fetchRealFlights } from './services/apiService';
-import { supabase } from './services/supabaseClient';
 import { useLanguage } from './i18n/context';
-import { AdSenseWidget } from './components/AdSenseWidget';
+import { AuthGate } from './components/auth/AuthGate';
 
 const SplashScreen: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   useEffect(() => {
@@ -67,7 +68,7 @@ const SplashScreen: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   );
 };
 
-const TAB_ORDER = [Tab.Home, Tab.Flights, Tab.Explore, Tab.Wander, Tab.Apollo, Tab.Itinerary, Tab.About];
+const TAB_ORDER = [Tab.Home, Tab.Flights, Tab.Explore, Tab.Itinerary];
 
 const AppContent: React.FC = () => {
   const { t } = useLanguage();
@@ -86,8 +87,6 @@ const AppContent: React.FC = () => {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [trackedActivity, setTrackedActivity] = useState<Flight | null>(null);
   const [alertMessage, setAlertMessage] = useState<string | undefined>();
-  const [showInterstitial, setShowInterstitial] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
   const [showTerms, setShowTerms] = useState(() => !localStorage.getItem('urtc_terms_accepted'));
   const [showDiamondTutorial, setShowDiamondTutorial] = useState(false);
   const [runTour, setRunTour] = useState(false);
@@ -143,58 +142,41 @@ const AppContent: React.FC = () => {
     localStorage.setItem('urtc_diamond_tutorial_seen', 'true');
   };
 
-  // Live Clock
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 30000); // update every 30s
-    return () => clearInterval(timer);
-  }, []);
 
-  // Interstitial Ad Timer
-  useEffect(() => {
-    if (user.tier === UserTier.Guest || user.tier === UserTier.Free) {
-      const timer = setTimeout(() => {
-        setShowInterstitial(true);
-      }, 90000); // 90s delay
-      return () => clearTimeout(timer);
-    }
-  }, [user.tier]);
 
-  // Supabase Auth Listener
+
+  // Firebase Auth Listener
   useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_OUT') {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
         const guestUser: UserAccount = {
           id: 'guest',
           username: 'Guest',
           passwordHash: '',
           tier: UserTier.Guest,
-          savedTrips: [],
-          xp: 0,
-          level: 1
+          savedTrips: []
         };
         setUser(guestUser);
         setActiveUser(guestUser);
-      } else if (event === 'SIGNED_IN' && session) {
+      } else {
         // Fetch profile
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+        const profile = userDoc.exists() ? userDoc.data() : null;
+        
         const activeUser: UserAccount = {
-          id: session.user.id,
-          username: profile?.username || session.user.email?.split('@')[0] || 'Traveler',
+          id: firebaseUser.uid,
+          username: profile?.username || firebaseUser.email?.split('@')[0] || 'Traveler',
           passwordHash: '',
-          email: session.user.email,
+          email: firebaseUser.email || undefined,
           tier: profile?.tier as UserTier || UserTier.Free,
-          savedTrips: [],
-          xp: profile?.xp || 0,
-          level: profile?.level || 1
+          savedTrips: []
         };
         setUser(activeUser);
         setActiveUser(activeUser);
       }
     });
 
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
 
   // Refresh user state from storage on mount
@@ -247,8 +229,8 @@ const AppContent: React.FC = () => {
           }
       };
 
-      // Poll every 30 seconds
-      const timer = setInterval(pollFlight, 30000);
+      // Poll every 10 seconds for premium telemetry
+      const timer = setInterval(pollFlight, 10000);
       return () => clearInterval(timer);
   }, [trackedActivity]);
 
@@ -290,7 +272,15 @@ const AppContent: React.FC = () => {
 
   const [mountedTabs, setMountedTabs] = useState<Set<Tab>>(new Set([Tab.Home]));
 
+  const [showApolloSheet, setShowApolloSheet] = useState(false);
+
   const handleTabChange = React.useCallback((newTab: Tab) => {
+    // Apollo is no longer a tab — it's the concierge sheet, available everywhere
+    if (newTab === Tab.Apollo) {
+      setMountedTabs(prev => { const s = new Set(prev); s.add(Tab.Apollo); return s; });
+      setShowApolloSheet(true);
+      return;
+    }
     setMountedTabs(prev => { const s = new Set(prev); s.add(newTab); return s; });
     setActiveTab(newTab);
   }, []);
@@ -313,6 +303,15 @@ const AppContent: React.FC = () => {
   const handleBackToHome = React.useCallback(() => {
     handleTabChange(Tab.Home);
   }, [handleTabChange]);
+
+  const handleExplore = React.useCallback((city: string) => {
+    setExploreCity(city);
+    handleTabChange(Tab.Explore);
+  }, [handleTabChange]);
+
+  const handleStartTour = React.useCallback(() => {
+    setRunTour(true);
+  }, []);
 
   const handlers = useSwipeable({
     onSwipedLeft: (e) => {
@@ -346,13 +345,9 @@ const AppContent: React.FC = () => {
           'bg-brand-ink'
         } text-white selection:bg-brand-orange selection:text-white transition-colors duration-500`}>
 
-          {/* Ambient depth glows */}
-          <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
-            <div className="absolute top-[-10%] right-[-5%] w-[500px] h-[500px] bg-brand-orange/4 rounded-full blur-[140px]" />
-            <div className="absolute bottom-[-10%] left-[-5%] w-[500px] h-[500px] bg-brand-blue/4 rounded-full blur-[140px]" />
-          </div>
+          {/* Ambient depth glows removed for performance */}
 
-          <div className="max-w-md md:max-w-2xl lg:max-w-4xl mx-auto min-h-screen relative">
+          <div className="max-w-md sm:max-w-lg md:max-w-2xl lg:max-w-3xl xl:max-w-4xl mx-auto min-h-screen relative">
 
             {/* Flight tracking Dynamic Island */}
             {trackedActivity && (
@@ -369,14 +364,6 @@ const AppContent: React.FC = () => {
               <div className="fixed top-0 left-0 w-full z-[60] bg-red-500/90 backdrop-blur-md text-white text-xs font-bold text-center py-2 flex justify-center gap-2 items-center">
                 <WifiOff size={12} /> No Internet Connection
               </div>
-            )}
-
-            {/* Interstitial Ad */}
-            {showInterstitial && (
-              <InterstitialAd
-                onClose={() => setShowInterstitial(false)}
-                onUpgrade={() => { setShowInterstitial(false); handleTabChange(Tab.About); }}
-              />
             )}
 
             {/* ─── Floating Glass Header (non-immersive tabs only) ─── */}
@@ -396,7 +383,7 @@ const AppContent: React.FC = () => {
                         <h1 className="font-display text-lg font-bold tracking-tight leading-none text-white">
                           Ür<span className="gradient-text">TC</span>
                         </h1>
-                        <span className="text-[9px] font-bold bg-brand-orange/20 text-brand-orange px-1.5 py-0.5 rounded-full">v1.2</span>
+                        <span className="text-[9px] font-bold bg-brand-orange/20 text-brand-orange px-1.5 py-0.5 rounded-full">v1.1</span>
                       </div>
                       <div className="flex items-center gap-1 mt-0.5">
                         <span className={`w-1.5 h-1.5 rounded-full ${
@@ -415,10 +402,13 @@ const AppContent: React.FC = () => {
 
                   {/* Right controls */}
                   <div className="flex items-center gap-1.5">
-                    <div className="hidden sm:flex items-center gap-1 text-[10px] font-mono text-white/30 px-2.5 py-1.5 rounded-xl border border-white/5 bg-white/3">
-                      <Clock size={9} />
-                      <span className="text-brand-orange font-bold">{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    </div>
+                    <button
+                      onClick={() => handleTabChange(Tab.About)}
+                      className="p-2 text-white/40 hover:text-white rounded-xl hover:bg-white/5 transition"
+                      title="Settings & plans"
+                    >
+                      <Settings size={17} />
+                    </button>
                     <button
                       onClick={() => handleThemeChange(theme === 'dark' ? 'light' : 'dark')}
                       className="p-2 text-white/40 hover:text-white rounded-xl hover:bg-white/5 transition"
@@ -434,16 +424,6 @@ const AppContent: React.FC = () => {
                   </div>
                 </div>
 
-                {/* AdSense banner for free users */}
-                {(user.tier === UserTier.Guest || user.tier === UserTier.Free) && (
-                  <div className="mt-2 rounded-2xl overflow-hidden border border-white/5 bg-white/3">
-                    <AdSenseWidget adClient="ca-pub-9455431514273237" adSlot="1234567890" className="w-full" />
-                    <p className="text-center text-[9px] text-white/20 pb-1.5 font-medium">
-                      Ad ·{' '}
-                      <button onClick={() => handleTabChange(Tab.About)} className="text-brand-orange/60 hover:text-brand-orange transition">Remove with Pro</button>
-                    </p>
-                  </div>
-                )}
               </header>
             )}
 
@@ -459,7 +439,7 @@ const AppContent: React.FC = () => {
                 </div>
               )}
               <div style={{ display: activeTab === Tab.Home ? 'block' : 'none' }} className="px-4 pt-3">
-                {activeTab === Tab.Home && <HomeView user={user} onNavigate={handleTabChange} onExplore={(city) => { setExploreCity(city); handleTabChange(Tab.Explore); }} onStartTour={() => setRunTour(true)} budgetItems={budgetItems} budgetLimit={budgetLimit} />}
+                {activeTab === Tab.Home && <HomeView user={user} onNavigate={handleTabChange} onExplore={handleExplore} onStartTour={handleStartTour} budgetItems={budgetItems} budgetLimit={budgetLimit} />}
               </div>
               {mountedTabs.has(Tab.Flights) && (
                 <div style={{ display: activeTab === Tab.Flights ? 'block' : 'none' }}>
@@ -476,14 +456,9 @@ const AppContent: React.FC = () => {
                   <SocialView />
                 </div>
               )}
-              {mountedTabs.has(Tab.Apollo) && (
-                <div style={{ display: activeTab === Tab.Apollo ? 'block' : 'none' }} className="px-4 pt-3">
-                  <ApolloView userTier={user.tier} onBack={handleBackToHome} />
-                </div>
-              )}
               {mountedTabs.has(Tab.Itinerary) && (
                 <div style={{ display: activeTab === Tab.Itinerary ? 'block' : 'none' }} className="px-4 pt-3">
-                  <ItineraryView user={user} />
+                  <ItineraryView user={user} onAskApollo={() => handleTabChange(Tab.Apollo)} />
                 </div>
               )}
               {mountedTabs.has(Tab.About) && (
@@ -493,45 +468,39 @@ const AppContent: React.FC = () => {
               )}
             </main>
 
-            <div className="fixed bottom-0 left-0 right-0 z-40 pb-safe pb-4 pt-2 px-4">
-              <div className="pill-nav rounded-[28px] px-2 py-2 flex items-center justify-between relative shadow-2xl shadow-black/50 w-full">
+            <div className="fixed bottom-0 left-0 right-0 z-40 pb-safe pb-4 pt-2 px-4 md:px-8 lg:px-16">
+              <div className="pill-nav rounded-[28px] px-2 py-2 flex items-center justify-between relative shadow-2xl shadow-black/50 w-full max-w-md sm:max-w-lg md:max-w-2xl mx-auto">
 
                 {/* Apollo FAB (elevated center) */}
                 <div className="absolute left-1/2 -translate-x-1/2 -top-6 flex flex-col items-center">
                   <button
                     id="tab-apollo"
                     onClick={() => handleTabChange(Tab.Apollo)}
-                    className={`relative select-none ${
-                      activeTab === Tab.Apollo ? 'animate-glow-pulse' : ''
-                    }`}
+                    className={`relative select-none ${showApolloSheet ? 'animate-glow-pulse' : ''}`}
                   >
                     <div className={`absolute inset-0 rounded-full blur-md transition-opacity ${
-                      activeTab === Tab.Apollo ? 'bg-brand-orange/60 opacity-100' : 'opacity-0'
+                      showApolloSheet ? 'bg-brand-orange/60 opacity-100' : 'opacity-0'
                     }`} />
                     <div className={`relative w-14 h-14 rounded-full border-[3px] ${
-                      activeTab === Tab.Apollo
-                        ? 'border-brand-orange shadow-lg glow-orange'
-                        : 'border-white/10'
+                      showApolloSheet ? 'border-brand-orange shadow-lg glow-orange' : 'border-brand-orange/40'
                     } overflow-hidden bg-brand-surface transition-all duration-200`}>
                       <img
                         src="/assets/apollo_pilot.jpg"
                         alt="Apollo"
-                        className={`w-full h-full object-cover transition-all duration-200 ${
-                          activeTab === Tab.Apollo ? '' : 'grayscale opacity-60'
-                        }`}
+                        className="w-full h-full object-cover"
                       />
                     </div>
+                    <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-green-400 border-2 border-brand-surface rounded-full" />
                   </button>
                   <span className={`text-[9px] font-bold uppercase tracking-wider mt-1 ${
-                    activeTab === Tab.Apollo ? 'text-brand-orange' : 'text-white/25'
-                  }`}>{t('tabs.apollo')}</span>
+                    showApolloSheet ? 'text-brand-orange' : 'text-white/25'
+                  }`}>Apollo</span>
                 </div>
 
                 {/* Left tabs */}
                 {[
-                  { tab: Tab.Home, icon: <Home size={22} />, label: t('tabs.home') },
-                  { tab: Tab.Flights, icon: <Plane size={22} />, label: t('tabs.flights') },
-                  { tab: Tab.Explore, icon: <Building2 size={22} />, label: t('tabs.explore') },
+                  { tab: Tab.Home, icon: <Home size={22} />, label: 'Today' },
+                  { tab: Tab.Flights, icon: <Plane size={22} />, label: 'Flights' },
                 ].map(({ tab, icon, label }) => (
                   <button
                     key={tab}
@@ -554,9 +523,8 @@ const AppContent: React.FC = () => {
 
                 {/* Right tabs */}
                 {[
-                  { tab: Tab.Wander, icon: <Globe size={22} />, label: t('tabs.wander') },
-                  { tab: Tab.Itinerary, icon: <Notebook size={22} />, label: t('tabs.plans') },
-                  { tab: Tab.About, icon: <Info size={22} />, label: t('tabs.about') },
+                  { tab: Tab.Explore, icon: <Building2 size={22} />, label: 'Explore' },
+                  { tab: Tab.Itinerary, icon: <Notebook size={22} />, label: 'Trips' },
                 ].map(({ tab, icon, label }) => (
                   <button
                     key={tab}
@@ -575,6 +543,38 @@ const AppContent: React.FC = () => {
                 ))}
               </div>
             </div>
+
+            {/* ── Apollo Concierge Sheet — slides over any screen ── */}
+            {mountedTabs.has(Tab.Apollo) && (
+              <div className={`fixed inset-0 z-[90] ${showApolloSheet ? '' : 'pointer-events-none'}`}>
+                <div
+                  className={`absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${showApolloSheet ? 'opacity-100' : 'opacity-0'}`}
+                  onClick={() => setShowApolloSheet(false)}
+                />
+                <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md sm:max-w-lg md:max-w-2xl bg-[#0f1115] border border-white/10 rounded-t-[32px] shadow-2xl h-[88vh] flex flex-col overflow-hidden transition-transform duration-300 ${showApolloSheet ? 'translate-y-0' : 'translate-y-full'}`}>
+                  <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/5 shrink-0">
+                    <div className="flex items-center gap-2.5">
+                      <div className="relative">
+                        <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-brand-orange/50">
+                          <img src="/assets/apollo_pilot.jpg" alt="Apollo" className="w-full h-full object-cover" />
+                        </div>
+                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 border-2 border-[#0f1115] rounded-full" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-black text-white leading-none">Apollo</div>
+                        <div className="text-[9px] text-white/40 uppercase tracking-widest mt-1">Your travel companion</div>
+                      </div>
+                    </div>
+                    <button onClick={() => setShowApolloSheet(false)} className="p-2 text-white/40 hover:text-white rounded-full hover:bg-white/10 transition">
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-4 pt-2 pb-4">
+                    <ApolloView userTier={user.tier} onBack={() => setShowApolloSheet(false)} />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {showLive && <ApolloLive isOpen={showLive} onClose={() => setShowLive(false)} />}
           </div>
@@ -625,7 +625,7 @@ const AppContent: React.FC = () => {
 
                   <div className="space-y-3">
                     <h3 className="text-white font-bold text-base">7. Privacy & Data</h3>
-                    <p>We collect only the data necessary to provide the App's services. Account data is stored securely via Supabase. We do not sell your personal information to third parties. For full details, contact <a href="mailto:feedback@cavecoredynamics.org" className="text-brand-orange hover:underline">feedback@cavecoredynamics.org</a>.</p>
+                    <p>We collect only the data necessary to provide the App's services. Account data is stored securely via Google Cloud (Firebase). We do not sell your personal information to third parties. For full details, contact <a href="mailto:feedback@cavecoredynamics.org" className="text-brand-orange hover:underline">feedback@cavecoredynamics.org</a>.</p>
                   </div>
 
                   <div className="space-y-3">

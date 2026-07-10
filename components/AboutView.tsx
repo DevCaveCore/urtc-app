@@ -7,6 +7,7 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { loadStripe } from '@stripe/stripe-js';
 import { redeemAccessCode, logout, getActiveUser, setStatsForNerds, updateUserTier } from '../services/authService';
 import { useLanguage } from '../i18n/context';
+import { PrivacyPolicy as PrivacyPolicyDoc, TermsOfService as TermsOfServiceDoc } from './LegalDocuments';
 
 const stripePromise = loadStripe('pk_live_51TUeysRqoflFtIgs5AqotIPRZ1Q6sWjxcdtXeEKYhT8Au7rdYJJ8JIaTdmohYZ7028erR55De0nJ2eo3WOXB3wF500XZknvsPh');
 
@@ -35,6 +36,9 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
  const [cancelReason, setCancelReason] = useState('Too expensive');
  const [cancelFeedback, setCancelFeedback] = useState('');
 
+ const [showPrivacy, setShowPrivacy] = useState(false);
+ const [showTerms, setShowTerms] = useState(false);
+
   const handleLogout = async () => {
     await logout();
     onUserUpdate(getActiveUser()); // Reset to Guest
@@ -60,32 +64,46 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
     alert('Your subscription has been successfully cancelled.');
  };
 
+ // Attach the user's identity to a Stripe Payment Link so the webhook
+ // can upgrade the right account the moment payment completes.
+ const checkoutUrl = (base: string) => {
+    if (!currentUser?.id || currentUser.id.startsWith('guest')) return base;
+    const params = new URLSearchParams({ client_reference_id: currentUser.id });
+    if (currentUser.email) params.set('prefilled_email', currentUser.email);
+    return `${base}?${params.toString()}`;
+ };
+
  const getFeatures = (tier: string) => {
     switch (tier) {
         case UserTier.Guest:
             return [
-                "Standard Flight Tracker (By ID/Route)",
-                "Basic AI Synthesis (Apollo AI)",
-                "Smart Query Parsing",
-                "Standard Ad State (Interstitial Engine)"
+                "Live flight tracking — search any flight, airport, route, or tail number",
+                "Airport departure boards & delay alerts",
+                "Explore nearby food & attractions with live weather",
+                "Apollo AI travel companion (15 messages)",
+                "Ad-supported"
             ];
         case UserTier.Free:
             return [
-                "Standard Flight Tracker (By ID/Route)",
-                "Basic AI Synthesis (Apollo AI)",
-                "Smart Query Parsing",
-                "Standard Ad State (Interstitial Engine)",
-                "Sync Trips Across Devices"
+                "Everything in Bronze",
+                "Live flight maps with weather radar",
+                "Trip planning with itineraries & budgets",
+                "Save flights & places to your trips",
+                "Trips synced across all your devices",
+                "Apollo AI travel companion (15 messages/day)",
+                "Ad-supported"
             ];
         case UserTier.Diamond:
             return [
-                "Zero-Latency / Ad-Free Engine",
-                "Advanced AI Planners (Smart Budgeting)",
-                "AI Smart Notes",
-                "Persistent Notes Panel (Digital Flight Bag)",
-                "Advanced Swipe Navigation & Scale Engine",
-                "Shared Trip Planning (Up to 5 Family Members)",
-                "Family Budget Sync"
+                "Everything in Silver — with zero ads",
+                "Unlimited Apollo AI chat + Live Voice mode",
+                "AI-predicted departure & arrival times",
+                "Smart Budgeting — AI builds your trip budget",
+                "AI Smart Notes & your Digital Flight Bag",
+                "Real-time flight alerts (delays, gates, cancellations)",
+                "Shared trip planning for up to 5 people",
+                "Family budget sync",
+                "First access to new features"
             ];
         case UserTier.Professional:
             return [
@@ -250,61 +268,108 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
                 )}
 
              </div>
-         )}
+          )}
 
-         {/* TAB 3: INFO */}
+          {/* TAB 3: INFO & LEGAL */}
          {activeTab === 'info' && (
-             <div className="space-y-6">
-                 <div className="flex justify-between items-center mb-6">
-                     <h2 className="text-xl font-bold text-gray-900 dark:text-white">Info & Credits</h2>
+             <div className="space-y-4">
+                 {/* Version Badge */}
+                 <div className="flex justify-between items-center">
+                     <h2 className="text-xl font-bold text-gray-900 dark:text-white">About & Legal</h2>
                      <div className="bg-brand-orange/10 text-brand-orange px-3 py-1 rounded-full text-xs font-bold border border-brand-orange/30 shadow-sm">
-                         Version 1.2
+                         v1.1.0
                      </div>
                  </div>
 
-                 {/* Crew Bios */}
-                 <div className="bg-white dark:bg-[#151921] p-5 rounded-2xl border border-gray-200 dark:border-white/10 text-left shadow-lg">
-                    <h3 className="font-bold text-brand-orange mb-4 flex items-center gap-2"><Info size={16} /> The Crew</h3>
-                    <div className="space-y-4 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
-                      <p>Founded by the visionaries at <strong>CaveCoreDynamics</strong>—architects of next-generation aerospace telemetry, advanced AI systems, and industry-disrupting software.</p>
-                      <p>Driven by a mission to turn imagination into reality, the CCD Founders built ÜrTC to completely reshape the future of global travel and logistics.</p>
-                      <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-white/10">
-                        <div className="mt-1 w-2 h-2 rounded-full bg-brand-orange shrink-0"></div>
-                        <div><strong className="text-gray-900 dark:text-white block">Apollo AI</strong><span className="text-gray-500 dark:text-gray-400 text-xs">The friendly Companion that can help with everything for travel. 🐶</span></div>
-                      </div>
-                      
-                      <div className="pt-4 border-t border-gray-200 dark:border-white/10">
-                          <h4 className="font-bold text-gray-900 dark:text-white mb-1">Feedback & Support</h4>
-                          <p className="text-xs text-gray-500 mb-2">Notice a bug? Have an idea? Let us know!</p>
-                          <a href="mailto:feedback@cavecoredynamics.org" className="text-brand-orange font-bold text-sm hover:underline break-all">feedback@cavecoredynamics.org</a>
+                 {/* About Card */}
+                 <div className="bg-white dark:bg-[#151921] p-5 rounded-2xl border border-gray-200 dark:border-white/10 shadow-sm">
+                    <h3 className="font-bold text-white mb-3 flex items-center gap-2 text-sm"><Info size={16} className="text-brand-orange" /> About ÜrTC</h3>
+                    <div className="space-y-3 text-xs text-gray-400 leading-relaxed">
+                      <p>
+                        <strong className="text-white">ÜrTC</strong> is built to give travelers a unified, intelligent way to track flights, plan trips, and manage money on the go.
+                      </p>
+                      <p>
+                        We believe travel should be about the destination, not the logistics. By combining real-time flight tracking, intuitive itinerary planning, and a dedicated AI assistant into a single elegant interface, ÜrTC replaces the clutter of juggling multiple apps so you can focus on the journey.
+                      </p>
+                      <div className="flex items-center gap-3 pt-3 border-t border-white/5">
+                        <div className="w-2 h-2 rounded-full bg-brand-orange shrink-0"></div>
+                        <div><strong className="text-white text-xs">Apollo AI</strong> <span className="text-gray-500">— Your friendly travel companion 🐶</span></div>
                       </div>
                     </div>
                  </div>
 
-                 {/* Data Sources */}
-                 <div className="bg-white dark:bg-[#151921] p-5 rounded-2xl border border-gray-200 dark:border-white/10 text-xs text-gray-600 dark:text-gray-300 leading-relaxed space-y-4">
-                    <p><strong>ÜrTC (Your Travel Companion)</strong> is built by <strong>Cave Core Dynamics™</strong> to give travelers a unified, intelligent way to track flights, plan trips, and manage money on the go.</p>
+                 {/* Data Sources Card */}
+                 <div className="bg-white dark:bg-[#151921] p-5 rounded-2xl border border-gray-200 dark:border-white/10 shadow-sm">
+                    <h3 className="font-bold text-white mb-3 flex items-center gap-2 text-sm"><Shield size={16} className="text-brand-blue" /> Data Sources & Credits</h3>
+                    <div className="space-y-2.5 text-xs text-gray-400">
+                      <div className="flex items-start gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-brand-orange mt-1.5 shrink-0"></div>
+                        <div><strong className="text-gray-300">Flight Data</strong> — FlightAware® AeroAPI</div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-brand-blue mt-1.5 shrink-0"></div>
+                        <div><strong className="text-gray-300">Weather</strong> — <a href="https://openweathermap.org/" target="_blank" rel="noopener noreferrer" className="text-brand-orange hover:underline">OpenWeather</a></div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 shrink-0"></div>
+                        <div><strong className="text-gray-300">Maps & Places</strong> — Google Maps Platform</div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-purple-500 mt-1.5 shrink-0"></div>
+                        <div><strong className="text-gray-300">AI Assistant</strong> — Google Gemini</div>
+                      </div>
+                    </div>
+                 </div>
+
+                 {/* Feedback Card */}
+                 <div className="bg-white dark:bg-[#151921] p-5 rounded-2xl border border-gray-200 dark:border-white/10 shadow-sm">
+                    <h3 className="font-bold text-white mb-2 text-sm">Feedback & Support</h3>
+                    <p className="text-xs text-gray-500 mb-2">Notice a bug? Have an idea? Let us know.</p>
+                    <a href="mailto:admin@cavecoredynamics.org" className="text-brand-orange font-bold text-sm hover:underline">admin@cavecoredynamics.org</a>
+                 </div>
+
+                 {/* Legal Section */}
+                 <div className="space-y-3">
+                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2"><FileText size={14} /> Legal</h3>
                     
-                    <div className="space-y-2">
-                        <p className="text-brand-orange font-bold uppercase tracking-widest text-[10px]">Flight Data</p>
-                        <p>Real-time and historical flight information is provided by <strong>FlightAware® AeroAPI</strong>.</p>
+                    {/* Privacy Policy Accordion */}
+                    <div className="bg-white dark:bg-[#151921] rounded-2xl border border-gray-200 dark:border-white/10 shadow-sm overflow-hidden">
+                      <button 
+                        onClick={() => setShowPrivacy(!showPrivacy)}
+                        className="w-full flex justify-between items-center p-4 text-sm font-bold text-white hover:bg-white/5 transition"
+                      >
+                        <span className="flex items-center gap-2"><Shield size={14} className="text-brand-orange" /> Privacy Policy</span>
+                        <span className="text-gray-500 text-xs">{showPrivacy ? '▲' : '▼'}</span>
+                      </button>
+                      {showPrivacy && (
+                        <div className="px-5 pb-5 border-t border-white/5">
+                          <PrivacyPolicyDoc />
+                        </div>
+                      )}
                     </div>
 
-                    <div className="space-y-2">
-                        <p className="text-brand-orange font-bold uppercase tracking-widest text-[10px]">Weather & Maps</p>
-                        <p>Location services, maps, and places data powered by <strong>Google Maps Platform</strong>.</p>
-                        <p>Weather data provided by <strong>OpenWeather</strong>.</p>
+                    {/* Terms of Service Accordion */}
+                    <div className="bg-white dark:bg-[#151921] rounded-2xl border border-gray-200 dark:border-white/10 shadow-sm overflow-hidden">
+                      <button 
+                        onClick={() => setShowTerms(!showTerms)}
+                        className="w-full flex justify-between items-center p-4 text-sm font-bold text-white hover:bg-white/5 transition"
+                      >
+                        <span className="flex items-center gap-2"><FileText size={14} className="text-brand-blue" /> Terms of Service</span>
+                        <span className="text-gray-500 text-xs">{showTerms ? '▲' : '▼'}</span>
+                      </button>
+                      {showTerms && (
+                        <div className="px-5 pb-5 border-t border-white/5">
+                          <TermsOfServiceDoc />
+                        </div>
+                      )}
                     </div>
+                 </div>
 
-                    <div className="space-y-2">
-                        <p className="text-brand-orange font-bold uppercase tracking-widest text-[10px]">AI Assistant</p>
-                        <p>Apollo AI conversations and insights are powered by <strong>Google’s Gemini models</strong>.</p>
-                    </div>
-
-                    <div className="pt-4 border-t border-gray-200 dark:border-white/10 text-[10px] opacity-70">
-                        <p>© 2026 Cave Core Dynamics™. All rights reserved.</p>
-                    </div>
-                </div>
+                 {/* Copyright Footer */}
+                 <div className="text-center text-[10px] text-gray-600 pt-2 pb-4">
+                     <p>© 2026 Cave Core Dynamics™. All rights reserved.</p>
+                     <p className="mt-1">Contains AeroAPI data © FlightAware LLC 2026.</p>
+                 </div>
              </div>
          )}
      </div>
@@ -378,14 +443,18 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
                     {selectedPlan === UserTier.Diamond && (
                         <div className="mt-6 space-y-2 border-t border-white/10 pt-4">
                             <h4 className="text-sm font-bold text-white mb-2">Choose your billing cycle:</h4>
-                            <a href="https://buy.stripe.com/3cIaEZcrV6NY4MadX87IY06" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-center text-white text-sm font-bold transition">
+                            <p className="text-[10px] text-center text-sky-300 bg-sky-400/10 border border-sky-400/20 rounded-lg py-1.5 px-2 mb-1">New accounts get 7 days of Diamond free — no card needed.</p>
+                            {(!currentUser?.id || currentUser.id.startsWith('guest')) && (
+                                <p className="text-[10px] text-center text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg py-1.5 px-2">Create a free account first so we can activate Diamond on it after checkout.</p>
+                            )}
+                            <a href={checkoutUrl("https://buy.stripe.com/3cIaEZcrV6NY4MadX87IY06")} target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-center text-white text-sm font-bold transition">
                                 Weekly: {new Intl.NumberFormat(navigator.language || 'en-US', { style: 'currency', currency: 'USD' }).format(4.99)}/wk
                             </a>
-                            <a href="https://buy.stripe.com/3cIbJ3dvZ4FQceCaKW7IY00" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-brand-orange/50 rounded-xl text-center text-white text-sm font-bold shadow-[0_0_15px_rgba(255,92,26,0.2)] transition">
+                            <a href={checkoutUrl("https://buy.stripe.com/3cIbJ3dvZ4FQceCaKW7IY00")} target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-brand-orange/50 rounded-xl text-center text-white text-sm font-bold shadow-[0_0_15px_rgba(255,92,26,0.2)] transition">
                                 Monthly: {new Intl.NumberFormat(navigator.language || 'en-US', { style: 'currency', currency: 'USD' }).format(13.99)}/mo (Recommended)
                             </a>
-                            <a href="https://buy.stripe.com/6oUcN70JdgoyguS8CO7IY05" target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-center text-white text-sm font-bold transition">
-                                Annually: {new Intl.NumberFormat(navigator.language || 'en-US', { style: 'currency', currency: 'USD' }).format(129.99)}/yr
+                            <a href={checkoutUrl("https://buy.stripe.com/6oUcN70JdgoyguS8CO7IY05")} target="_blank" rel="noopener noreferrer" className="block w-full py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-center text-white text-sm font-bold transition">
+                                Annually: {new Intl.NumberFormat(navigator.language || 'en-US', { style: 'currency', currency: 'USD' }).format(129.99)}/yr <span className="ml-2 text-[9px] font-black bg-green-500 text-white px-2 py-0.5 rounded-full align-middle">BEST VALUE · SAVE 23%</span>
                             </a>
                             <p className="text-[10px] text-center text-gray-500 mt-2">Prices are localized at checkout based on your region.</p>
                         </div>

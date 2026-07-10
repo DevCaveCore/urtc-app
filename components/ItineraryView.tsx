@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { hasDiamondAccess } from '../services/authService';
 import { Plus, Trash2, FileText, WifiOff, Heart, Cookie, PenLine, Calculator, QrCode, X, ChevronDown, Plane, Hotel, Ticket, Train, Sparkles, AlertCircle, Check, Loader2, Utensils, ShoppingBag, MapPin, Globe, Calendar, Lock, Download, ExternalLink, Share, Wine, ChevronLeft, CalendarPlus, FileOutput, Archive, RotateCcw } from 'lucide-react';
 import { Note, BudgetCategory, Pass, UserTier, Trip, TripFlight, UserAccount } from '../types';
 import { fetchTrips, createTrip, updateTrip, deleteTrip, addFlightToTrip, deleteFlightFromTrip } from '../services/tripService';
@@ -26,7 +27,7 @@ const PlansTutorialWidget = () => {
         {
             icon: <Globe size={20} className="text-brand-blue" />,
             title: "Sync Travel",
-            desc: "Collaborate with friends on your itineraries in real-time. This feature is coming soon in Version 1.3!"
+            desc: "Collaborate with friends on your itineraries in real-time. Coming soon in a future update!"
         }
     ];
 
@@ -66,9 +67,34 @@ const PlansTutorialWidget = () => {
 
 interface PlansViewProps {
   user: UserAccount;
+  onAskApollo?: () => void;
 }
 
-export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user }) => {
+// Rotating gradient palette so every trip card feels distinct
+const TRIP_GRADIENTS = [
+  'from-orange-500/25 via-red-500/10 to-transparent',
+  'from-blue-500/25 via-indigo-500/10 to-transparent',
+  'from-emerald-500/25 via-teal-500/10 to-transparent',
+  'from-purple-500/25 via-fuchsia-500/10 to-transparent',
+  'from-amber-500/25 via-yellow-500/10 to-transparent',
+];
+
+// Human countdown for a trip based on its earliest flight (or start_date)
+const tripTiming = (trip: Trip): { label: string; cls: string } => {
+  const deps = (trip.flights || [])
+    .map((f: any) => new Date(f.flight_date || f.departure_time || 0).getTime())
+    .filter((t: number) => t > 0 && !Number.isNaN(t));
+  // Real flight dates are the truth; start_date is only a fallback
+  const start = deps.length ? Math.min(...deps) : (trip.start_date ? new Date(trip.start_date).getTime() : 0);
+  if (!start) return { label: '✈ Dates TBD', cls: 'bg-white/10 text-white/60 border-white/15' };
+  const days = Math.ceil((start - Date.now()) / 86400000);
+  if (days > 1) return { label: `🛫 In ${days} days`, cls: 'bg-brand-orange/20 text-brand-orange border-brand-orange/30' };
+  if (days === 1) return { label: '🛫 Tomorrow!', cls: 'bg-brand-orange/20 text-brand-orange border-brand-orange/30 animate-pulse' };
+  if (days >= -2) return { label: '🌍 Happening now', cls: 'bg-green-500/20 text-green-400 border-green-500/30' };
+  return { label: '📁 Past trip', cls: 'bg-white/10 text-white/40 border-white/10' };
+};
+
+export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user, onAskApollo }) => {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
@@ -78,27 +104,29 @@ export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user }) => 
   const [newTripName, setNewTripName] = useState('');
   const [tripFilter, setTripFilter] = useState<'active' | 'archived'>('active');
 
-  const isPro = user.tier === UserTier.Diamond || user.tier === UserTier.Professional || user.tier === UserTier.Dev;
+  const isPro = hasDiamondAccess(user);
 
   useEffect(() => {
     loadTrips();
+    // Apollo can create/edit trips from the chat — refresh when he does
+    const onTripsChanged = () => loadTrips();
+    window.addEventListener('urtc-trips-changed', onTripsChanged);
+    return () => window.removeEventListener('urtc-trips-changed', onTripsChanged);
   }, [user.id]);
 
   const loadTrips = async () => {
     setIsLoading(true);
-    if (user.id !== 'guest') {
-        const data = await fetchTrips(user.id);
-        setTrips(data);
-        if (selectedTrip) {
-            const updated = data.find(t => t.id === selectedTrip.id);
-            if (updated) setSelectedTrip(updated);
-        }
+    const data = await fetchTrips(user.id);
+    setTrips(data);
+    if (selectedTrip) {
+        const updated = data.find(t => t.id === selectedTrip.id);
+        if (updated) setSelectedTrip(updated);
     }
     setIsLoading(false);
   };
 
   const handleCreateTrip = async () => {
-    if (!newTripName.trim() || user.id === 'guest') return;
+    if (!newTripName.trim()) return;
     setIsLoading(true);
     const newTrip = await createTrip(user.id, newTripName);
     if (newTrip) {
@@ -130,7 +158,7 @@ export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user }) => 
             <div id="tour-itinerary-header" className="flex justify-between items-end">
                 <div>
                     <h2 className="text-3xl font-black text-gray-900 dark:text-white">Your Trips</h2>
-                    <p className="text-sm text-gray-500">Plan and sync your journeys.</p>
+                    <p className="text-sm text-gray-500">Where to next?</p>
                 </div>
                 <button 
                     onClick={() => setIsCreating(!isCreating)}
@@ -157,21 +185,31 @@ export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user }) => 
             )}
 
             {/* Plans Tab Interactive Tutorial / Sync Announcement */}
-            {user.id !== 'guest' && (
-                <PlansTutorialWidget />
+            <PlansTutorialWidget />
+
+            {user.id === 'guest' && (
+                <div className="bg-brand-orange/20 border border-brand-orange/30 p-2 rounded-xl mb-4 text-center text-xs text-brand-orange font-medium flex items-center justify-center gap-2">
+                    <Sparkles size={12} />
+                    <span>Login to permanently save your itineraries across devices!</span>
+                </div>
             )}
 
-            {user.id === 'guest' ? (
-                 <div className="text-center py-12 bg-white/5 border border-white/10 rounded-3xl">
-                    <Lock className="mx-auto mb-2 text-gray-500" size={32} />
-                    <p className="text-sm font-bold text-gray-400">Please sign in to save trips.</p>
-                </div>
-            ) : isLoading && trips.length === 0 ? (
+            {isLoading && trips.length === 0 ? (
                 <div className="flex justify-center py-12"><Loader2 className="animate-spin text-brand-orange" size={32}/></div>
             ) : trips.length === 0 ? (
-                <div className="text-center py-12 opacity-50">
-                    <Globe className="mx-auto mb-4 text-gray-500" size={48} />
-                    <p className="text-sm font-bold text-gray-500">No trips planned yet.</p>
+                <div className="text-center py-14 bg-white/[0.03] border border-dashed border-white/10 rounded-[28px]">
+                    <Globe className="mx-auto mb-4 text-gray-600" size={44} />
+                    <p className="text-base font-black text-white/80">No trips yet — where are we going?</p>
+                    <p className="text-xs text-gray-500 mt-1 mb-5">Create one with the + button, or let the good boy do the digging.</p>
+                    <button
+                        onClick={() => {
+                            try { localStorage.setItem('urtc_apollo_prefill', 'Help me plan a new trip! Ask me a couple of questions about where I want to go, my budget, and dates — then build me a plan.'); } catch { /* ignore */ }
+                            onAskApollo?.();
+                        }}
+                        className="bg-gradient-to-r from-brand-orange to-red-500 text-white font-bold text-sm px-6 py-3 rounded-2xl shadow-lg shadow-brand-orange/25 hover:scale-[1.03] active:scale-95 transition"
+                    >
+                        🐾 Ask Apollo to plan one
+                    </button>
                 </div>
             ) : (
                 <>
@@ -203,29 +241,33 @@ export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user }) => 
                             <div className="grid gap-4">
                                 {activeTrips.map(trip => (
                                     <SwipeToDelete key={trip.id} onDelete={() => handleDeleteTrip(trip.id)}>
+                                        {(() => { const timing = tripTiming(trip); const i = activeTrips.indexOf(trip); const spent = (trip.budget_categories || []).reduce((a: number, c: any) => a + (c.planned || 0), 0); return (
                                         <div 
                                             onClick={() => setSelectedTrip(trip)}
-                                            className="bg-white dark:bg-[#151921] p-5 rounded-3xl border border-gray-200 dark:border-white/10 shadow-sm flex justify-between items-center cursor-pointer active:scale-95 transition"
+                                            className="relative overflow-hidden bg-[#12151b] rounded-[28px] border border-white/10 p-6 cursor-pointer group hover:border-brand-orange/30 active:scale-[0.98] transition"
                                         >
-                                            <div className="flex-1 min-w-0">
-                                                <h3 className="font-bold text-xl text-gray-900 dark:text-white truncate">{trip.name}</h3>
-                                                <div className="flex items-center gap-3 text-xs text-gray-500 mt-1 font-mono">
-                                                    <span className="flex items-center gap-1"><Plane size={12}/> {trip.flights?.length || 0}</span>
-                                                    <span className="flex items-center gap-1"><PenLine size={12}/> {trip.notes?.length || 0}</span>
-                                                    <span className="flex items-center gap-1"><Calculator size={12}/> {trip.budget_categories?.length || 0}</span>
+                                            <div className={`absolute inset-0 bg-gradient-to-br ${TRIP_GRADIENTS[i % TRIP_GRADIENTS.length]} pointer-events-none`} />
+                                            <div className="relative z-10">
+                                                <div className="flex items-start justify-between">
+                                                    <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full border ${timing.cls}`}>{timing.label}</span>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); handleArchiveTrip(trip.id, true); }}
+                                                        className="p-2 bg-black/20 rounded-full text-white/40 hover:text-brand-orange transition border border-white/10"
+                                                        title="Archive trip"
+                                                    >
+                                                        <Archive size={14} />
+                                                    </button>
+                                                </div>
+                                                <h3 className="font-black text-2xl text-white truncate mt-3 group-hover:text-brand-orange transition-colors">{trip.name}</h3>
+                                                <div className="flex items-center gap-2 mt-4 flex-wrap">
+                                                    <span className="flex items-center gap-1.5 text-[11px] font-bold text-white/60 bg-black/25 border border-white/10 px-2.5 py-1 rounded-full"><Plane size={11}/> {trip.flights?.length || 0} flights</span>
+                                                    <span className="flex items-center gap-1.5 text-[11px] font-bold text-white/60 bg-black/25 border border-white/10 px-2.5 py-1 rounded-full"><MapPin size={11}/> {(trip as any).places?.length || 0} places</span>
+                                                    <span className="flex items-center gap-1.5 text-[11px] font-bold text-white/60 bg-black/25 border border-white/10 px-2.5 py-1 rounded-full"><PenLine size={11}/> {trip.notes?.length || 0} notes</span>
+                                                    {spent > 0 && <span className="flex items-center gap-1.5 text-[11px] font-bold text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1 rounded-full"><Calculator size={11}/> ${spent.toLocaleString()}</span>}
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-2 ml-2">
-                                                <button 
-                                                    onClick={(e) => { e.stopPropagation(); handleArchiveTrip(trip.id, true); }}
-                                                    className="p-2 bg-gray-100 dark:bg-white/5 rounded-full text-gray-400 hover:text-brand-orange transition border border-gray-200 dark:border-white/10"
-                                                    title="Archive trip"
-                                                >
-                                                    <Archive size={14} />
-                                                </button>
-                                                <ChevronRight />
-                                            </div>
                                         </div>
+                                        ); })()}
                                     </SwipeToDelete>
                                 ))}
                             </div>
@@ -453,8 +495,11 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
             </div>
 
             <div className="px-2">
+                {(() => { const timing = tripTiming(trip); return (
+                    <span className={`inline-block text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full border mb-2 ${timing.cls}`}>{timing.label}</span>
+                ); })()}
                 <h2 className="text-3xl font-black text-white">{trip.name}</h2>
-                <p className="text-xs text-gray-500 mt-1 font-mono">ID: {trip.id.split('-')[0]}</p>
+                <p className="text-xs text-gray-500 mt-1.5">{trip.flights?.length || 0} flights · {(trip as any).places?.length || 0} places · {trip.notes?.length || 0} notes</p>
             </div>
 
             {/* Sub-Navigation Tabs */}
@@ -499,8 +544,10 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
                                 <div className="bg-[#151921] p-5 rounded-3xl border border-white/10 shadow-sm">
                                     <div className="flex justify-between items-start mb-3">
                                         <div>
-                                            <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{f.flight_date}</div>
-                                            <h4 className="text-lg font-bold text-white">{f.airline} {f.flight_number}</h4>
+                                            <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                                                {(() => { const d = new Date(f.flight_date); return isNaN(d.getTime()) ? 'Date TBD' : `${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`; })()}
+                                            </div>
+                                            <h4 className="text-lg font-bold text-white">{f.flight_number?.startsWith(f.airline || '~') ? f.flight_number : `${f.airline || ''} ${f.flight_number}`.trim()}</h4>
                                         </div>
                                         <button onClick={() => generateICS(f)} className="p-2 bg-brand-blue/10 text-brand-blue rounded-full border border-brand-blue/30 active:scale-95 transition" title="Add to Calendar">
                                             <CalendarPlus size={16}/>
@@ -512,8 +559,8 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
                                         <div>{f.arrival_airport || 'TBD'}</div>
                                     </div>
                                     <div className="bg-brand-orange/10 border border-brand-orange/20 rounded-lg p-2 flex items-center gap-2">
-                                        <Loader2 size={12} className="text-brand-orange animate-spin" />
-                                        <span className="text-[10px] text-brand-orange font-bold uppercase tracking-wider">{f.status}</span>
+                                        <Plane size={12} className="text-brand-orange" />
+                                        <span className="text-[10px] text-brand-orange font-bold uppercase tracking-wider">{f.status || 'Scheduled'}</span>
                                     </div>
                                 </div>
                             </SwipeToDelete>
@@ -525,9 +572,46 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
             {/* BUDGET TAB */}
             {subTab === 'budget' && (
                 <div className="space-y-4 px-2">
+                    {(() => {
+                        const limit = trip.budget_limit || 0;
+                        const pct = limit > 0 ? Math.min(100, (totalSpent / limit) * 100) : 0;
+                        const over = limit > 0 && totalSpent > limit;
+                        return (
+                        <div className="bg-[#12151b] p-6 rounded-[28px] border border-white/10 shadow-sm relative overflow-hidden">
+                            <div className={`absolute inset-0 bg-gradient-to-br ${over ? 'from-red-500/15' : 'from-brand-orange/15'} via-transparent to-transparent pointer-events-none`} />
+                            <div className="relative z-10">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Planned Spend</p>
+                                        <div className="text-4xl font-black text-white font-mono tracking-tight mt-1">${(totalSpent || 0).toLocaleString()}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{over ? 'Over By' : 'Remaining'}</p>
+                                        <div className={`text-xl font-black font-mono mt-1 ${over ? 'text-red-400' : 'text-green-400'}`}>
+                                            ${Math.abs((limit) - totalSpent).toLocaleString()}
+                                        </div>
+                                    </div>
+                                </div>
+                                {limit > 0 ? (
+                                    <div className="mt-4">
+                                        <div className="h-2.5 bg-white/10 rounded-full overflow-hidden">
+                                            <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-gradient-to-r from-red-500 to-red-400' : 'bg-gradient-to-r from-brand-orange/70 to-brand-orange'}`} style={{ width: `${pct}%` }} />
+                                        </div>
+                                        <div className="flex justify-between mt-1.5 text-[10px] font-bold text-gray-500">
+                                            <span>{Math.round(pct)}% of budget</span>
+                                            <span>Limit ${limit.toLocaleString()}</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <p className="mt-3 text-[11px] text-gray-500">Set a budget limit below and this becomes a live progress meter.</p>
+                                )}
+                            </div>
+                        </div>
+                        );
+                    })()}
+
                     <div className="bg-[#151921] p-5 rounded-3xl border border-white/10 shadow-sm relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-64 h-64 bg-brand-orange/5 rounded-full blur-3xl pointer-events-none" />
-                        <h4 className="font-bold text-sm text-white mb-3">Trip Context</h4>
+                        <h4 className="font-bold text-sm text-white mb-3">Trip Context <span className="text-[10px] text-gray-500 font-medium normal-case">— helps Apollo give sharper insights</span></h4>
                         <div className="grid grid-cols-2 gap-3 mb-4 relative z-10">
                             <div>
                                 <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block mb-1">Destination</label>
@@ -547,18 +631,6 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
                             </div>
                         </div>
 
-                        <div className="flex justify-between items-end relative z-10 border-t border-white/10 pt-4 mt-2">
-                            <div>
-                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Total Spent / Planned</p>
-                                <div className="text-3xl font-black text-white">${(totalSpent || 0).toLocaleString()}</div>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Remaining</p>
-                                <div className={`text-lg font-bold ${(trip.budget_limit || 0) - totalSpent < 0 ? 'text-red-500' : 'text-green-500'}`}>
-                                    ${((trip.budget_limit || 0) - totalSpent).toLocaleString()}
-                                </div>
-                            </div>
-                        </div>
                     </div>
 
                     <div className="bg-[#151921] p-5 rounded-3xl border border-white/10 shadow-sm">
@@ -585,23 +657,36 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
                     <div className="space-y-2">
                         {(trip.budget_categories || []).map((item: any) => (
                             <SwipeToDelete key={item.id} onDelete={() => handleDeleteBudget(item.id)}>
-                                <div className="bg-[#1C1C1E] border border-white/5 p-4 rounded-2xl flex justify-between items-center relative">
-                                    <span className="font-bold text-sm text-gray-300">{item.label}</span>
-                                    <div className="flex items-center gap-3">
-                                        <span className="font-mono text-brand-orange">${(item.planned || 0).toLocaleString()}</span>
-                                        <button onClick={() => handleDeleteBudget(item.id)} className="text-gray-500 hover:text-red-400/80 transition z-10">
-                                            <X size={18} />
-                                        </button>
+                                {(() => {
+                                    const share = totalSpent > 0 ? Math.round(((item.planned || 0) / totalSpent) * 100) : 0;
+                                    const l = (item.label || '').toLowerCase();
+                                    const emoji = /flight|air|plane/.test(l) ? '✈️' : /hotel|stay|airbnb|lodg/.test(l) ? '🏨' : /food|eat|dinner|lunch|sushi|restaurant|coffee/.test(l) ? '🍽️' : /car|uber|lyft|train|transit|gas/.test(l) ? '🚕' : /shop|gift|souvenir/.test(l) ? '🛍️' : /ticket|tour|museum|show|park/.test(l) ? '🎟️' : '💵';
+                                    return (
+                                    <div className="bg-[#14171d] border border-white/5 p-4 rounded-2xl relative overflow-hidden">
+                                        <div className="absolute inset-y-0 left-0 bg-brand-orange/[0.07] pointer-events-none" style={{ width: `${share}%` }} />
+                                        <div className="relative z-10 flex justify-between items-center">
+                                            <span className="font-bold text-sm text-gray-200 flex items-center gap-2.5">
+                                                <span className="text-base">{emoji}</span> {item.label}
+                                                <span className="text-[9px] font-black text-gray-500 bg-white/5 px-1.5 py-0.5 rounded">{share}%</span>
+                                            </span>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-mono font-bold text-brand-orange">${(item.planned || 0).toLocaleString()}</span>
+                                                <button onClick={() => handleDeleteBudget(item.id)} className="text-gray-600 hover:text-red-400/80 transition z-10">
+                                                    <X size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
+                                    );
+                                })()}
                             </SwipeToDelete>
                         ))}
                     </div>
 
                     <div className="mt-6">
-                        <button onClick={handleGenerateInsight} disabled={isGeneratingInsight} className="w-full py-3 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-2xl font-bold shadow-lg active:scale-95 transition flex items-center justify-center gap-2">
+                        <button onClick={handleGenerateInsight} disabled={isGeneratingInsight} className="w-full py-3.5 bg-gradient-to-r from-brand-orange to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-2xl font-bold shadow-lg shadow-brand-orange/25 active:scale-95 transition flex items-center justify-center gap-2">
                             {isGeneratingInsight ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-                            Ask Apollo for Budget Insights
+                            🐾 Ask Apollo to Sniff This Budget
                         </button>
                         
                         {budgetInsight && (

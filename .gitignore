@@ -23,3 +23,13 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
+
+# ÜrTC private
+"eggs benedict"/
+eggs benedict/
+GROWTH-PLAYBOOK.md
+*.bak
+*.bak2
+*.tmpbak
+.firebase/
+functions/node_modules

@@ -1,4 +1,17 @@
-import { supabase } from './supabaseClient';
+import { db } from './firebaseClient';
+import { 
+  collection, 
+  doc, 
+  getDoc,
+  getDocs, 
+  setDoc, 
+  addDoc, 
+  deleteDoc, 
+  updateDoc,
+  query, 
+  where, 
+  orderBy 
+} from 'firebase/firestore';
 import { Trip, TripFlight, Note, BudgetCategory, Pass } from '../types';
 
 const MOCK_STORAGE_KEY = 'urtc_mock_trips';
@@ -18,20 +31,27 @@ export const fetchTrips = async (userId: string): Promise<Trip[]> => {
     if (userId === 'guest' || userId.startsWith('code-')) {
         return getMockTrips().filter(t => t.user_id === userId);
     }
-    const { data, error } = await supabase
-        .from('trips')
-        .select(`
-            *,
-            flights:trip_flights(*)
-        `)
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-    if (error) {
+    
+    try {
+        const tripsRef = collection(db, 'trips');
+        const q = query(tripsRef, where('user_id', '==', userId));
+        const snapshot = await getDocs(q);
+        
+        const trips: Trip[] = [];
+        snapshot.forEach(doc => {
+            trips.push({ id: doc.id, ...doc.data() } as Trip);
+        });
+        
+        // Sort by created_at descending (approximate if we don't have indexes yet)
+        return trips.sort((a, b) => {
+            const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return dateB - dateA;
+        });
+    } catch (error) {
         console.error('Error fetching trips:', error);
         return [];
     }
-    return data || [];
 };
 
 export const createTrip = async (userId: string, name: string): Promise<Trip | null> => {
@@ -40,28 +60,26 @@ export const createTrip = async (userId: string, name: string): Promise<Trip | n
         name,
         notes: [],
         budget_categories: [],
-        passes: []
+        passes: [],
+        flights: [],
+        created_at: new Date().toISOString()
     };
 
     if (userId === 'guest' || userId.startsWith('code-')) {
-        const trip = { ...newTrip, id: `mock-trip-${Date.now()}`, flights: [] };
+        const trip = { ...newTrip, id: `mock-trip-${Date.now()}` };
         const trips = getMockTrips();
         saveMockTrips([trip, ...trips]);
         return trip;
     }
 
-    const { data, error } = await supabase
-        .from('trips')
-        .insert([newTrip])
-        .select()
-        .single();
-
-    if (error) {
+    try {
+        const docRef = await addDoc(collection(db, 'trips'), newTrip);
+        return { id: docRef.id, ...newTrip };
+    } catch (error: any) {
         console.error('Error creating trip:', error);
         alert(`Error: ${error.message}`);
         return null;
     }
-    return data;
 };
 
 export const deleteTrip = async (tripId: string): Promise<boolean> => {
@@ -71,13 +89,13 @@ export const deleteTrip = async (tripId: string): Promise<boolean> => {
         return true;
     }
 
-    const { error } = await supabase
-        .from('trips')
-        .delete()
-        .eq('id', tripId);
-    
-    if (error) console.error('Error deleting trip:', error);
-    return !error;
+    try {
+        await deleteDoc(doc(db, 'trips', tripId));
+        return true;
+    } catch (error) {
+        console.error('Error deleting trip:', error);
+        return false;
+    }
 };
 
 export const updateTrip = async (tripId: string, updates: Partial<Trip>): Promise<boolean> => {
@@ -92,17 +110,18 @@ export const updateTrip = async (tripId: string, updates: Partial<Trip>): Promis
         return false;
     }
 
-    const { error } = await supabase
-        .from('trips')
-        .update(updates)
-        .eq('id', tripId);
-    
-    if (error) console.error('Error updating trip:', error);
-    return !error;
+    try {
+        await updateDoc(doc(db, 'trips', tripId), updates);
+        return true;
+    } catch (error) {
+        console.error('Error updating trip:', error);
+        return false;
+    }
 };
 
 export const addFlightToTrip = async (userId: string, tripId: string, flightNumber: string, date: string, airline?: string, departure?: string, arrival?: string): Promise<boolean> => {
     const newFlight: any = {
+        id: `flight-${Date.now()}`,
         trip_id: tripId,
         user_id: userId,
         flight_number: flightNumber,
@@ -118,42 +137,65 @@ export const addFlightToTrip = async (userId: string, tripId: string, flightNumb
         const trip = trips.find(t => t.id === tripId);
         if (trip) {
             if (!trip.flights) trip.flights = [];
-            trip.flights.push({ ...newFlight, id: `mock-flight-${Date.now()}` });
+            trip.flights.push(newFlight);
             saveMockTrips(trips);
             return true;
         }
         return false;
     }
 
-    const { error } = await supabase
-        .from('trip_flights')
-        .insert([newFlight]);
-
-    if (error) console.error('Error adding flight to trip:', error);
-    return !error;
+    try {
+        // Fetch current trip to append flight
+        const tripRef = doc(db, 'trips', tripId);
+        const tripSnap = await getDoc(tripRef);
+        if (tripSnap.exists()) {
+            const data = tripSnap.data();
+            const flights = data.flights || [];
+            flights.push(newFlight);
+            await updateDoc(tripRef, { flights });
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error adding flight to trip:', error);
+        return false;
+    }
 };
 
 export const deleteFlightFromTrip = async (flightId: string): Promise<boolean> => {
-    if (flightId.startsWith('mock-flight-')) {
+    if (flightId.startsWith('flight-')) {
+        // Mock trips might also have 'flight-' or 'mock-flight-' depending on generation
         const trips = getMockTrips();
+        let changed = false;
         for (const trip of trips) {
             if (trip.flights) {
                 const initLen = trip.flights.length;
                 trip.flights = trip.flights.filter(f => f.id !== flightId);
-                if (trip.flights.length !== initLen) {
-                    saveMockTrips(trips);
-                    return true;
-                }
+                if (trip.flights.length !== initLen) changed = true;
             }
         }
-        return false;
+        if (changed) saveMockTrips(trips);
+        // We'll also try Firestore just in case
     }
 
-    const { error } = await supabase
-        .from('trip_flights')
-        .delete()
-        .eq('id', flightId);
-    
-    if (error) console.error('Error deleting flight:', error);
-    return !error;
+    try {
+        // For Firestore, we have to find the trip that contains this flight.
+        // This is inefficient but works for now since we denormalized flights into the trip document.
+        const snapshot = await getDocs(collection(db, 'trips'));
+        let found = false;
+        for (const tripDoc of snapshot.docs) {
+            const data = tripDoc.data();
+            const flights = data.flights || [];
+            const newFlights = flights.filter((f: any) => f.id !== flightId);
+            if (flights.length !== newFlights.length) {
+                await updateDoc(doc(db, 'trips', tripDoc.id), { flights: newFlights });
+                found = true;
+                break;
+            }
+        }
+        return found;
+    } catch (error) {
+        console.error('Error deleting flight:', error);
+        return false;
+    }
 };

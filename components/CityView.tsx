@@ -1,11 +1,11 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { CloudRain, Sun, Wind, Droplets, MapPin, Star, DollarSign, Map as MapIcon, Plus, Search, Loader2, Navigation, ExternalLink, Thermometer, Car, Train, Newspaper, ChevronDown, List, Bookmark, Trash2 } from 'lucide-react';
 import { Weather, Place, BudgetItem, NewsArticle, Theme } from '../types';
-import { fetchRealWeather, fetchTravelNews } from '../services/apiService';
+import { fetchRealWeather, fetchRealWeatherByCoords, fetchAirQuality, fetchTravelNews } from '../services/apiService';
 import { getTransitRates } from '../services/mockService';
 import { getActiveUser } from '../services/authService';
-import { supabase } from '../services/supabaseClient';
+import { db } from '../services/firebaseClient';
+import { collection, query, where, getDocs, setDoc, deleteDoc, doc } from 'firebase/firestore';
 import { SwipeToDelete } from './SwipeToDelete';
 import { fetchTrips, updateTrip } from '../services/tripService';
 import { Trip } from '../types';
@@ -25,6 +25,29 @@ declare global {
 
 const PRESET_CITIES = ["Atlanta, GA, USA", "Brookhaven, GA, USA", "New York, NY, USA", "London, UK", "Tokyo, Japan", "Paris, France"];
 
+// Straight-line distance between two coordinates in miles
+const haversineMiles = (a: { lat: number; lng: number }, b: { lat: number; lng: number }): number => {
+    const R = 3958.8;
+    const dLat = (b.lat - a.lat) * Math.PI / 180;
+    const dLng = (b.lng - a.lng) * Math.PI / 180;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+};
+
+// Rough walking time: ~20 minutes per mile
+const walkMins = (miles: number): number => Math.max(1, Math.round(miles * 20));
+
+// Nearby feed category filters
+const NEARBY_FILTERS: Record<string, { emoji: string; food?: string[]; see?: string[] }> = {
+    'All':     { emoji: '✨', food: ['restaurant', 'cafe', 'bakery', 'bar'], see: ['tourist_attraction', 'museum', 'park', 'art_gallery', 'amusement_park', 'zoo'] },
+    'Coffee':  { emoji: '☕', food: ['cafe', 'coffee_shop', 'bakery'] },
+    'Eat':     { emoji: '🍜', food: ['restaurant'] },
+    'Drinks':  { emoji: '🍸', food: ['bar', 'night_club'] },
+    'Parks':   { emoji: '🌳', see: ['park', 'botanical_garden', 'hiking_area'] },
+    'Museums': { emoji: '🖼️', see: ['museum', 'art_gallery', 'performing_arts_theater'] },
+    'Shops':   { emoji: '🛍️', see: ['shopping_mall', 'book_store', 'clothing_store', 'gift_shop'] },
+};
+
 export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, initialCity = "Atlanta", onCityChange, theme = 'dark' }) => {
     const [currentCity, setCurrentCity] = useState(initialCity);
     const [weather, setWeather] = useState<Weather | null>(null);
@@ -43,6 +66,18 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
     const [userTrips, setUserTrips] = useState<Trip[]>([]);
     const [placeToSave, setPlaceToSave] = useState<Place | null>(null);
     const [hasInitializedLocation, setHasInitializedLocation] = useState(false);
+    const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+    const [nearbyFood, setNearbyFood] = useState<Place[]>([]);
+    const [nearbyAttractions, setNearbyAttractions] = useState<Place[]>([]);
+    const [isLoadingNearby, setIsLoadingNearby] = useState(false);
+    const lastNearbyCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+    const nearbyReqIdRef = useRef(0);
+    const userMarkerRef = useRef<any>(null);
+    // Where the map should center once it's actually created (it may not exist yet
+    // when geolocation resolves, since the map div only mounts on the Map tab)
+    const pendingCenterRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
+    const [nearbyFilter, setNearbyFilter] = useState<string>('All');
+    const [airQuality, setAirQuality] = useState<{ aqi: number; category: string } | null>(null);
 
     const mapRef = useRef<HTMLDivElement>(null);
     const googleMapRef = useRef<any>(null);
@@ -54,10 +89,13 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
         const loadSavedPlaces = async () => {
             const user = getActiveUser();
             if (user && !user.id.startsWith('guest')) {
-                const { data } = await supabase.from('saved_places').select('place_data').eq('user_id', user.id);
-                if (data) {
-                    setSavedPlaces(data.map(row => row.place_data));
-                }
+                const q = query(collection(db, 'saved_places'), where('user_id', '==', user.id));
+                const snapshot = await getDocs(q);
+                const loadedPlaces: Place[] = [];
+                snapshot.forEach(doc => {
+                    loadedPlaces.push(doc.data().place_data as Place);
+                });
+                setSavedPlaces(loadedPlaces);
             } else {
                 const stored = localStorage.getItem('urtc_saved_places');
                 if (stored) setSavedPlaces(JSON.parse(stored));
@@ -82,12 +120,12 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
         if (isSaved) {
             newSaved = savedPlaces.filter(p => p.id !== place.id);
             if (user && !user.id.startsWith('guest')) {
-                await supabase.from('saved_places').delete().eq('user_id', user.id).eq('place_data->>id', place.id);
+                await deleteDoc(doc(db, 'saved_places', `${user.id}_${place.id}`));
             }
         } else {
             newSaved = [...savedPlaces, place];
             if (user && !user.id.startsWith('guest')) {
-                await supabase.from('saved_places').insert({ user_id: user.id, place_data: place });
+                await setDoc(doc(db, 'saved_places', `${user.id}_${place.id}`), { user_id: user.id, place_data: place });
             }
         }
         
@@ -110,9 +148,10 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
     useEffect(() => {
         if (mapReady && !googleMapRef.current && mapRef.current) {
             try {
+                const startCenter = pendingCenterRef.current || (userCoords ? { ...userCoords, zoom: 15 } : { lat: 33.7490, lng: -84.3880, zoom: 13 });
                 googleMapRef.current = new window.google.maps.Map(mapRef.current, {
-                    center: { lat: 33.7490, lng: -84.3880 },
-                    zoom: 13,
+                    center: { lat: startCenter.lat, lng: startCenter.lng },
+                    zoom: startCenter.zoom,
                     mapId: "DEMO_MAP_ID",
                     disableDefaultUI: true,
                 });
@@ -121,7 +160,59 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
         }
     }, [mapRef.current, mapReady, activeTab]);
 
-    // Initial Location Detection
+    // Fetch what's physically around the user right now (food + attractions)
+    const fetchNearbyPlaces = async (coords: { lat: number; lng: number }, filterKey?: string) => {
+        if (!window.google?.maps?.places?.Place?.searchNearby) return;
+        const reqId = ++nearbyReqIdRef.current; // ignore stale responses from rapid filter taps
+        setIsLoadingNearby(true);
+        try {
+            const filter = NEARBY_FILTERS[filterKey || nearbyFilter] || NEARBY_FILTERS['All'];
+            const base = {
+                fields: ['id', 'displayName', 'types', 'rating', 'priceLevel', 'photos', 'location', 'formattedAddress', 'googleMapsURI', 'websiteURI'],
+                locationRestriction: { center: coords, radius: 1600 }, // ~1 mile walking range
+                maxResultCount: 12,
+                rankPreference: 'POPULARITY'
+            };
+            const [foodRes, attrRes] = await Promise.all([
+                filter.food ? window.google.maps.places.Place.searchNearby({ ...base, includedTypes: filter.food }) : Promise.resolve({ places: [] }),
+                filter.see ? window.google.maps.places.Place.searchNearby({ ...base, includedTypes: filter.see }) : Promise.resolve({ places: [] })
+            ]);
+            const mapPlace = (p: any, i: number, cat: 'Food' | 'Attraction'): Place & { distanceMiles?: number } => {
+                const price = estimatePriceDetails(p);
+                const loc = p.location;
+                const lat = typeof loc?.lat === 'function' ? loc.lat() : loc?.lat;
+                const lng = typeof loc?.lng === 'function' ? loc.lng() : loc?.lng;
+                const miles = (lat != null && lng != null) ? haversineMiles(coords, { lat, lng }) : undefined;
+                return {
+                    id: p.id,
+                    name: p.displayName,
+                    category: cat,
+                    rating: p.rating || 4.3,
+                    priceLevel: price.level,
+                    priceEstimate: price.estimate,
+                    priceDisplay: price.display,
+                    image: p.photos && p.photos.length > 0 ? p.photos[0].getURI({ maxWidth: 400 }) : `https://picsum.photos/200/200?random=${i}`,
+                    coordinates: (lat != null && lng != null) ? { lat, lng } as any : { x: 0, y: 0 },
+                    description: p.formattedAddress || '',
+                    websiteUrl: p.googleMapsURI || p.websiteURI || `https://www.google.com/search?q=${encodeURIComponent(p.displayName)}`,
+                    distanceText: miles != null ? `${miles.toFixed(1)} mi` : undefined,
+                    durationText: miles != null ? `${walkMins(miles)} min walk` : undefined,
+                    distanceMiles: miles
+                };
+            };
+            if (reqId !== nearbyReqIdRef.current) return; // a newer request superseded this one
+            const byDistance = (a: any, b: any) => (a.distanceMiles ?? 99) - (b.distanceMiles ?? 99);
+            setNearbyFood(((foodRes?.places) || []).map((p: any, i: number) => mapPlace(p, i, 'Food')).sort(byDistance));
+            setNearbyAttractions(((attrRes?.places) || []).map((p: any, i: number) => mapPlace(p, i + 20, 'Attraction')).sort(byDistance));
+            lastNearbyCoordsRef.current = coords;
+        } catch (e) {
+            console.error('Nearby search failed', e);
+        } finally {
+            if (reqId === nearbyReqIdRef.current) setIsLoadingNearby(false);
+        }
+    };
+
+    // Initial Location Detection — anchors weather, map, and the nearby feed to the same spot
     useEffect(() => {
         if (!mapReady || hasInitializedLocation) return;
         setHasInitializedLocation(true);
@@ -130,8 +221,17 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     const { latitude, longitude } = position.coords;
+                    const coords = { lat: latitude, lng: longitude };
+                    setUserCoords(coords);
+                    fetchNearbyPlaces(coords);
+                    fetchAirQuality(latitude, longitude).then(setAirQuality).catch(() => {});
+                    pendingCenterRef.current = { ...coords, zoom: 15 };
+                    if (googleMapRef.current) {
+                        googleMapRef.current.setCenter(coords);
+                        googleMapRef.current.setZoom(15);
+                    }
                     const geocoder = new window.google.maps.Geocoder();
-                    geocoder.geocode({ location: { lat: latitude, lng: longitude } }, (results: any[], status: any) => {
+                    geocoder.geocode({ location: coords }, (results: any[], status: any) => {
                         if (status === 'OK' && results[0]) {
                             const cityComp = results[0].address_components.find((c: any) => c.types.includes('locality'));
                             const stateComp = results[0].address_components.find((c: any) => c.types.includes('administrative_area_level_1'));
@@ -142,9 +242,9 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                             if (stateComp && countryComp?.short_name === 'US') detectedCity += `, ${stateComp.short_name}`;
                             else if (countryComp) detectedCity += `, ${countryComp.short_name}`;
                             
-                            handleCityChange(detectedCity || initialCity);
+                            handleCityChange(detectedCity || initialCity, coords);
                         } else {
-                            handleCityChange(initialCity);
+                            handleCityChange(initialCity, coords);
                         }
                     });
                 },
@@ -155,6 +255,46 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
             handleCityChange(initialCity);
         }
     }, [mapReady, hasInitializedLocation]);
+
+    // Follow the user as they walk — refresh the nearby feed after ~250m of movement
+    useEffect(() => {
+        if (!mapReady || !("geolocation" in navigator)) return;
+        const watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                setUserCoords(coords);
+                const last = lastNearbyCoordsRef.current;
+                if (last && haversineMiles(last, coords) > 0.15) {
+                    fetchNearbyPlaces(coords);
+                }
+            },
+            () => { /* silently ignore — initial detection already handled fallback */ },
+            { enableHighAccuracy: false, maximumAge: 30000 }
+        );
+        return () => navigator.geolocation.clearWatch(watchId);
+    }, [mapReady]);
+
+    // "You are here" dot on the map
+    useEffect(() => {
+        if (userCoords && googleMapRef.current && window.google?.maps?.marker?.AdvancedMarkerElement) {
+            if (!userMarkerRef.current) {
+                const dot = document.createElement('div');
+                dot.style.cssText = 'width:16px;height:16px;background:#4285F4;border:3px solid white;border-radius:50%;box-shadow:0 0 12px rgba(66,133,244,0.8)';
+                userMarkerRef.current = new window.google.maps.marker.AdvancedMarkerElement({
+                    map: googleMapRef.current,
+                    position: userCoords,
+                    title: 'You are here',
+                    content: dot,
+                    zIndex: 999
+                });
+                // First time we know where the user is: snap the map to them
+                googleMapRef.current.setCenter(userCoords);
+                googleMapRef.current.setZoom(15);
+            } else {
+                userMarkerRef.current.position = userCoords;
+            }
+        }
+    }, [userCoords, mapReady, activeTab]);
 
     // City Autocomplete logic using Google Places
     useEffect(() => {
@@ -168,7 +308,7 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
         });
     }, [cityInput]);
 
-    const handleCityChange = async (city: string) => {
+    const handleCityChange = async (city: string, coords?: { lat: number; lng: number }) => {
         setCurrentCity(city);
         setCitySelectorOpen(false);
         setShowCitySuggestions(false);
@@ -179,13 +319,18 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
         localStorage.setItem('urtc_last_city', city.split(',')[0].trim());
 
         try {
-            const weatherData = await fetchRealWeather(city);
+            // If we know exactly where the user is, weather comes from those coordinates
+            // so the forecast and the nearby places always describe the same spot.
+            const weatherData = coords
+                ? await fetchRealWeatherByCoords(coords.lat, coords.lng)
+                : await fetchRealWeather(city);
             setWeather(weatherData);
 
             if (geocoderRef.current && googleMapRef.current) {
                 geocoderRef.current.geocode({ address: city }, (results: any[], status: any) => {
                     if (status === 'OK' && results[0]) {
                         const location = results[0].geometry.location;
+                        pendingCenterRef.current = { lat: location.lat(), lng: location.lng(), zoom: 13 };
                         googleMapRef.current.setCenter(location);
                         performSearch("Attractions", location);
                     }
@@ -379,6 +524,12 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                             <Wind size={12} className="mx-auto mb-1 opacity-80" />
                             <div className="font-bold text-xs">{weather?.wind}</div>
                         </div>
+                        {airQuality && (
+                            <div className="bg-white/20 backdrop-blur-md p-2 rounded-xl text-center min-w-[50px]" title={airQuality.category}>
+                                <div className={`mx-auto mb-1 w-3 h-3 rounded-full ${airQuality.aqi >= 80 ? 'bg-green-400' : airQuality.aqi >= 60 ? 'bg-yellow-300' : airQuality.aqi >= 40 ? 'bg-orange-400' : 'bg-red-500'}`} />
+                                <div className="font-bold text-xs">AQI {airQuality.aqi}</div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -414,7 +565,159 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                         </div>
                     </div>
                 )}
+
+                {/* Required OpenWeather Attribution (must be visible where weather data is displayed) */}
+                <div className="mt-2 pt-2 border-t border-white/10 text-center relative z-10">
+                    <a href="https://openweathermap.org/" target="_blank" rel="noopener noreferrer" className="text-[9px] text-white/30 hover:text-white/50 transition">
+                        Weather by OpenWeather
+                    </a>
+                </div>
             </div>
+
+            {/* Around You Now — live nearby feed */}
+            {(userCoords || nearbyFood.length > 0 || nearbyAttractions.length > 0 || isLoadingNearby) && (
+                <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
+                    <div className="flex items-center justify-between px-1">
+                        <h3 className="text-lg font-black text-gray-900 dark:text-white flex items-center gap-2">
+                            <span className="relative flex h-2.5 w-2.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-orange opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-brand-orange"></span>
+                            </span>
+                            Around You Now
+                        </h3>
+                        {isLoadingNearby && <Loader2 size={14} className="animate-spin text-brand-orange" />}
+                    </div>
+
+                    {/* Category chips */}
+                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                        {Object.entries(NEARBY_FILTERS).map(([key, f]) => (
+                            <button
+                                key={key}
+                                onClick={() => { setNearbyFilter(key); if (userCoords) fetchNearbyPlaces(userCoords, key); }}
+                                className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all ${nearbyFilter === key
+                                    ? 'bg-brand-orange text-white border-brand-orange shadow-lg shadow-brand-orange/30 scale-105'
+                                    : 'bg-white dark:bg-white/5 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-white/10 hover:border-brand-orange/40'}`}
+                            >
+                                {f.emoji} {key}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Closest Gem — best nearby pick, big card */}
+                    {(() => {
+                        const all = [...nearbyFood, ...nearbyAttractions].filter(p => p.distanceText);
+                        if (all.length === 0) return null;
+                        const score = (p: any) => (p.rating || 4) - parseFloat(p.distanceText || '9') * 1.5;
+                        const gem = all.reduce((a, b) => (score(b) > score(a) ? b : a));
+                        return (
+                            <a
+                                href={gem.websiteUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="relative block w-full h-44 rounded-3xl overflow-hidden group shadow-xl border border-black/5 dark:border-white/10"
+                            >
+                                <img src={gem.image} alt={gem.name} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-black/10" />
+                                <div className="absolute top-3 left-3 bg-brand-orange text-white text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full shadow-lg">
+                                    ✦ Closest Gem
+                                </div>
+                                <div className="absolute top-3 right-3 bg-black/50 backdrop-blur px-2 py-0.5 rounded-full text-[11px] font-bold text-white flex items-center gap-1">
+                                    <Star size={10} className="text-yellow-400 fill-yellow-400" /> {Number(gem.rating).toFixed(1)}
+                                </div>
+                                <div className="absolute bottom-0 inset-x-0 p-4">
+                                    <div className="text-white font-black text-xl leading-tight line-clamp-1">{gem.name}</div>
+                                    <div className="text-[11px] text-white/90 mt-1.5 flex items-center gap-3 font-bold">
+                                        <span className="text-green-400">{gem.priceDisplay}</span>
+                                        {gem.durationText && <span className="flex items-center gap-1"><Navigation size={10} /> {gem.durationText}</span>}
+                                        <span className="opacity-70">{gem.category}</span>
+                                    </div>
+                                </div>
+                            </a>
+                        );
+                    })()}
+
+                    {nearbyFood.length > 0 && (
+                        <div>
+                            <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500 px-1 mb-2">{nearbyFilter === 'All' ? 'Grab a Bite' : `${NEARBY_FILTERS[nearbyFilter]?.emoji} ${nearbyFilter} Near You`}</div>
+                            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x">
+                                {nearbyFood.map((p) => (
+                                    <a
+                                        key={p.id}
+                                        href={p.websiteUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="relative min-w-[160px] w-40 h-52 rounded-3xl overflow-hidden snap-start shrink-0 group shadow-lg border border-black/5 dark:border-white/10"
+                                    >
+                                        <img src={p.image} alt={p.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
+                                        <div className="absolute top-2 right-2 bg-black/50 backdrop-blur px-2 py-0.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1">
+                                            <Star size={9} className="text-yellow-400 fill-yellow-400" /> {Number(p.rating).toFixed(1)}
+                                        </div>
+                                        <button
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleSavePlace(p); }}
+                                            className="absolute top-2 left-2 bg-black/50 backdrop-blur p-1.5 rounded-full text-white hover:bg-brand-orange transition"
+                                            title="Save place"
+                                        >
+                                            <Bookmark size={11} className={savedPlaces.some(sp => sp.id === p.id) ? 'fill-brand-orange text-brand-orange' : ''} />
+                                        </button>
+                                        <div className="absolute bottom-0 inset-x-0 p-3">
+                                            <div className="text-white font-bold text-sm leading-tight line-clamp-2">{p.name}</div>
+                                            <div className="text-[10px] text-white/90 mt-1.5 flex items-center gap-2 font-bold">
+                                                <span className="text-green-400">{p.priceDisplay}</span>
+                                                {p.durationText && <span className="flex items-center gap-1"><Navigation size={9} /> {p.durationText}</span>}
+                                            </div>
+                                        </div>
+                                    </a>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {!isLoadingNearby && nearbyFood.length === 0 && nearbyAttractions.length === 0 && (
+                        <div className="text-center py-6 bg-gray-50 dark:bg-white/5 rounded-2xl border border-dashed border-gray-200 dark:border-white/10">
+                            <p className="text-sm text-gray-500">Nothing within a mile for this filter.</p>
+                            <button onClick={() => { setNearbyFilter('All'); if (userCoords) fetchNearbyPlaces(userCoords, 'All'); }} className="mt-2 text-xs font-bold text-brand-orange hover:underline">Show everything nearby</button>
+                        </div>
+                    )}
+
+                    {nearbyAttractions.length > 0 && (
+                        <div>
+                            <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500 px-1 mb-2">{nearbyFilter === 'All' ? 'Things to See' : `${NEARBY_FILTERS[nearbyFilter]?.emoji} ${nearbyFilter} Near You`}</div>
+                            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x">
+                                {nearbyAttractions.map((p) => (
+                                    <a
+                                        key={p.id}
+                                        href={p.websiteUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="relative min-w-[160px] w-40 h-52 rounded-3xl overflow-hidden snap-start shrink-0 group shadow-lg border border-black/5 dark:border-white/10"
+                                    >
+                                        <img src={p.image} alt={p.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
+                                        <div className="absolute top-2 right-2 bg-black/50 backdrop-blur px-2 py-0.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1">
+                                            <Star size={9} className="text-yellow-400 fill-yellow-400" /> {Number(p.rating).toFixed(1)}
+                                        </div>
+                                        <button
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleSavePlace(p); }}
+                                            className="absolute top-2 left-2 bg-black/50 backdrop-blur p-1.5 rounded-full text-white hover:bg-brand-orange transition"
+                                            title="Save place"
+                                        >
+                                            <Bookmark size={11} className={savedPlaces.some(sp => sp.id === p.id) ? 'fill-brand-orange text-brand-orange' : ''} />
+                                        </button>
+                                        <div className="absolute bottom-0 inset-x-0 p-3">
+                                            <div className="text-white font-bold text-sm leading-tight line-clamp-2">{p.name}</div>
+                                            <div className="text-[10px] text-white/90 mt-1.5 flex items-center gap-2 font-bold">
+                                                <span className="text-green-400">{p.priceDisplay}</span>
+                                                {p.durationText && <span className="flex items-center gap-1"><Navigation size={9} /> {p.durationText}</span>}
+                                            </div>
+                                        </div>
+                                    </a>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Search & Toggle */}
             <div className="space-y-3">
@@ -619,9 +922,94 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                     <button onClick={() => performSearch(searchQuery || "Attractions")} className="absolute top-4 left-1/2 -translate-x-1/2 bg-brand-dark/90 backdrop-blur text-white px-4 py-2 rounded-full text-xs font-bold shadow-xl border border-white/20 flex items-center gap-2">
                         <Search size={14} /> Search This Area
                     </button>
+                    {/* Snap back to the user's real position */}
+                    <button
+                        onClick={() => {
+                            if (!googleMapRef.current) return;
+                            if (userCoords) {
+                                googleMapRef.current.setCenter(userCoords);
+                                googleMapRef.current.setZoom(15);
+                            } else if ("geolocation" in navigator) {
+                                navigator.geolocation.getCurrentPosition((pos) => {
+                                    const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                                    setUserCoords(coords);
+                                    googleMapRef.current.setCenter(coords);
+                                    googleMapRef.current.setZoom(15);
+                                });
+                            }
+                        }}
+                        title="Center on my location"
+                        className="absolute bottom-4 right-4 bg-white text-[#4285F4] p-3 rounded-full shadow-xl border border-gray-200 hover:scale-110 active:scale-95 transition-transform"
+                    >
+                        <Navigation size={18} className="fill-[#4285F4]" />
+                    </button>
                 </div>
-            )
-            }
+            )}
+
+            {/* ── Exclusive Partner Deals & Ad Space ── */}
+            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-white/10 space-y-4 px-2">
+                <div className="flex items-center justify-between mb-3">
+                    <h2 className="font-display text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                        <Star size={15} className="text-brand-orange" /> Exclusive Partner Deals
+                    </h2>
+                </div>
+                <div className="flex gap-3 overflow-x-auto hide-scrollbar pb-1">
+                    <a
+                        href="https://hub.stay22.com/referral/cavecoredynamics/travel"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-shrink-0 w-64 rounded-2xl overflow-hidden relative group shadow-lg shadow-black/20 press block"
+                    >
+                        <img
+                            src="https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&h=300&fit=crop"
+                            alt="Hotels"
+                            className="w-full h-32 object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
+                        <div className="absolute top-2 left-2 bg-brand-orange text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                            Stay22
+                        </div>
+                        <div className="absolute bottom-3 left-3 right-3 text-left">
+                            <p className="font-display font-bold text-white text-sm leading-tight">Book the Best Hotels</p>
+                            <p className="text-white/60 text-[10px] mt-0.5 flex items-center gap-1">Get up to 20% off stays <ExternalLink size={10}/></p>
+                        </div>
+                    </a>
+
+                    <a
+                        href="https://www.discovercars.com/?a_aid=CaveCoreDynamics"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-shrink-0 w-64 rounded-2xl overflow-hidden relative group shadow-lg shadow-black/20 press block"
+                    >
+                        <img
+                            src="https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=600&h=300&fit=crop"
+                            alt="Rental Cars"
+                            className="w-full h-32 object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
+                        <div className="absolute top-2 left-2 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                            DiscoverCars
+                        </div>
+                        <div className="absolute bottom-3 left-3 right-3 text-left">
+                            <p className="font-display font-bold text-white text-sm leading-tight">Rent a Car Anywhere</p>
+                            <p className="text-white/60 text-[10px] mt-0.5 flex items-center gap-1">Compare prices & save <ExternalLink size={10}/></p>
+                        </div>
+                    </a>
+                </div>
+
+                {/* ── Ad Space Placeholder (Silver & Dev Only) ── */}
+                {getActiveUser() && (getActiveUser()?.tier === 'Silver' || getActiveUser()?.tier === 'Dev') && (
+                    <div className="mt-4 animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both border border-dashed border-gray-400 dark:border-white/20 bg-gray-100 dark:bg-white/5 rounded-2xl p-4 flex flex-col items-center justify-center min-h-[100px] relative overflow-hidden text-center">
+                        <div className="text-gray-500 dark:text-white/40 text-[10px] font-mono tracking-widest uppercase mb-1">Advertisement Space</div>
+                        <p className="text-gray-700 dark:text-white/60 text-xs font-medium">Unskippable 15s Video Ad goes here</p>
+                        {getActiveUser()?.tier === 'Dev' && (
+                            <div className="absolute top-2 right-2 bg-amber-500/20 text-amber-500 dark:text-amber-400 text-[9px] font-mono px-2 py-0.5 rounded border border-amber-500/30">
+                                DEV PREVIEW
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
 
             {/* Trip Selection Modal */}
             {placeToSave && (

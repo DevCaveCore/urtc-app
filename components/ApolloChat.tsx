@@ -5,6 +5,8 @@ import { ChatMessage, UserTier } from '../types';
 import { streamApolloResponse, generateSpeech } from '../services/geminiService';
 import { EnhancedApolloDogIcon } from './ApolloDog';
 import { getActiveUser } from '../services/authService';
+import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '../services/firebaseClient';
 
 interface ApolloChatProps {
   isOpen: boolean;
@@ -24,28 +26,59 @@ export const ApolloChat: React.FC<ApolloChatProps> = ({ isOpen, onClose }) => {
   const user = getActiveUser();
 
   useEffect(() => {
-    const saved = localStorage.getItem('apollo_chat_history');
-    if (saved) {
-      try {
-        setMessages(JSON.parse(saved).map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) })));
-      } catch (e) { console.error(e); }
-    } else {
-      setMessages([{
-        id: 'welcome',
-        text: "Woof! I'm Apollo 🐾. Welcome to **Beta 4.0**! I have new powers: I can Search the web, check Maps for prices, and even Speak! Ask me anything.",
-        sender: 'apollo',
-        timestamp: new Date()
-      }]);
-    }
+    const loadHistory = async () => {
+      let loadedMessages: ChatMessage[] | null = null;
 
+      if (user.tier !== UserTier.Guest && user.id !== 'guest') {
+        try {
+          const docRef = doc(db, 'apolloHistory', user.id);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists() && docSnap.data().messages) {
+            loadedMessages = docSnap.data().messages.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }));
+          }
+        } catch (e) {
+          console.error("Failed to load Firebase history", e);
+        }
+      }
+
+      if (!loadedMessages) {
+        const saved = localStorage.getItem('apollo_chat_history');
+        if (saved) {
+          try {
+            loadedMessages = JSON.parse(saved).map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }));
+            if (user.tier !== UserTier.Guest && user.id !== 'guest') {
+              setDoc(doc(db, 'apolloHistory', user.id), { messages: JSON.parse(saved) }, { merge: true }).catch(console.error);
+            }
+          } catch (e) { console.error(e); }
+        }
+      }
+
+      if (loadedMessages && loadedMessages.length > 0) {
+        setMessages(loadedMessages);
+      } else {
+        setMessages([{
+          id: 'welcome',
+          text: "Woof! I'm Apollo 🐾. Welcome to **Beta 4.0**! I have new powers: I can Search the web, check Maps for prices, and even Speak! Ask me anything.",
+          sender: 'apollo',
+          timestamp: new Date()
+        }]);
+      }
+    };
+
+    loadHistory();
     // Check message limits
     checkLimits();
-  }, []);
+  }, [user.id]);
 
   useEffect(() => {
-    if (messages.length > 0) localStorage.setItem('apollo_chat_history', JSON.stringify(messages));
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isThinking]);
+    if (messages.length > 0) {
+      localStorage.setItem('apollo_chat_history', JSON.stringify(messages));
+      if (user.tier !== UserTier.Guest && user.id !== 'guest') {
+        setDoc(doc(db, 'apolloHistory', user.id), { messages: JSON.parse(JSON.stringify(messages)) }, { merge: true }).catch(console.error);
+      }
+    }
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, user.id, isThinking]);
 
   const checkLimits = () => {
     const today = new Date().toDateString();
@@ -53,8 +86,8 @@ export const ApolloChat: React.FC<ApolloChatProps> = ({ isOpen, onClose }) => {
     const count = parseInt(localStorage.getItem(storageKey) || '0');
     setMsgCount(count);
 
-    if (user.tier === UserTier.Guest && count >= 5) setLimitReached(true);
-    else if (user.tier === UserTier.Free && count >= 10) setLimitReached(true);
+    if (user.tier === UserTier.Guest && count >= 15) setLimitReached(true);
+    else if (user.tier === UserTier.Free && count >= 15) setLimitReached(true);
     else setLimitReached(false);
   };
 
@@ -69,7 +102,10 @@ export const ApolloChat: React.FC<ApolloChatProps> = ({ isOpen, onClose }) => {
 
   const handleClearHistory = () => {
     localStorage.removeItem('apollo_chat_history');
-    setMessages([{ id: Date.now().toString(), text: "Memory cleared! 🐾 What now?", sender: 'apollo', timestamp: new Date() }]);
+    if (user.tier !== UserTier.Guest && user.id !== 'guest') {
+      deleteDoc(doc(db, 'apolloHistory', user.id)).catch(console.error);
+    }
+    setMessages([{ id: 'welcome', text: "Woof! I'm Apollo 🐾. Chat history cleared. What's next?", sender: 'apollo', timestamp: new Date() }]);
   };
 
   const handlePlayAudio = async (text: string, id: string) => {
@@ -91,12 +127,14 @@ export const ApolloChat: React.FC<ApolloChatProps> = ({ isOpen, onClose }) => {
   };
 
   const handleSend = async (textOverride?: string) => {
-    if (limitReached && user.tier !== UserTier.Diamond && user.tier !== UserTier.Professional) return;
-
     const textToSend = textOverride || input;
     if (!textToSend.trim() || isThinking) return;
+    
+    if (!textOverride && limitReached && user.tier !== UserTier.Diamond && user.tier !== UserTier.Professional) return;
 
-    incrementCount();
+    if (!textOverride) {
+      incrementCount();
+    }
     const userMsg: ChatMessage = { id: Date.now().toString(), text: textToSend, sender: 'user', timestamp: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
@@ -128,7 +166,7 @@ export const ApolloChat: React.FC<ApolloChatProps> = ({ isOpen, onClose }) => {
               <h3 className="font-bold text-white text-lg leading-tight">Apollo AI <span className="text-[10px] bg-brand-orange px-1.5 py-0.5 rounded text-white font-mono uppercase">BETA 4.0</span></h3>
               <p className="text-[10px] text-gray-400 flex items-center gap-1 font-medium">
                 <Sparkles size={10} className="text-brand-orange" />
-                {limitReached ? 'Daily Limit Reached' : `${user.tier === UserTier.Guest ? 5 - msgCount : (user.tier === UserTier.Free ? 10 - msgCount : '∞')} msgs left`}
+                {limitReached ? 'Daily Limit Reached' : `${user.tier === UserTier.Guest ? 15 - msgCount : (user.tier === UserTier.Free ? 15 - msgCount : '∞')} msgs left`}
               </p>
             </div>
           </div>
@@ -137,6 +175,14 @@ export const ApolloChat: React.FC<ApolloChatProps> = ({ isOpen, onClose }) => {
             <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition text-white"><X className="w-6 h-6" /></button>
           </div>
         </div>
+
+        {user.tier === UserTier.Guest && (
+          <div className="bg-brand-orange/20 border-b border-brand-orange/30 p-2 text-center text-xs text-brand-orange font-medium flex items-center justify-center gap-2">
+            <Sparkles size={12} />
+            <span>Login to save your history and get 15 Apollo messages!</span>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gradient-to-b from-[#0B0E14] to-brand-blue/5 scrollbar-hide">
           {messages.map((msg) => (
             <div key={msg.id} className={`flex w-full gap-3 ${msg.sender === 'user' ? 'justify-end' : 'justify-start items-end'}`}>

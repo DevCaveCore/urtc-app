@@ -4,9 +4,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, Trash2, Bot, User, Volume2, Loader2, Plane, HelpCircle, ChevronLeft } from 'lucide-react';
 import { ChatMessage, UserTier } from '../types';
 import { streamApolloResponse, generateSpeech } from '../services/geminiService';
+import { hasDiamondAccess } from '../services/authService';
 import { EnhancedApolloDogIcon } from './ApolloDog';
-import { ApolloChat } from './ApolloChat';
 import { getActiveUser } from '../services/authService';
+import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '../services/firebaseClient';
 
 interface ApolloViewProps {
   userTier: UserTier;
@@ -16,6 +18,20 @@ interface ApolloViewProps {
 export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onBack }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+
+  // Concierge chips on Today prefill the composer
+  useEffect(() => {
+    const check = () => {
+      try {
+        const p = localStorage.getItem('urtc_apollo_prefill');
+        if (p) { setInput(p); localStorage.removeItem('urtc_apollo_prefill'); }
+      } catch { /* ignore */ }
+    };
+    check();
+    window.addEventListener('focus', check);
+    const iv = setInterval(check, 1200);
+    return () => { window.removeEventListener('focus', check); clearInterval(iv); };
+  }, []);
   const [isThinking, setIsThinking] = useState(false);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [msgCount, setMsgCount] = useState(0);
@@ -28,21 +44,48 @@ export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onB
   const user = getActiveUser();
 
   useEffect(() => {
-    const saved = localStorage.getItem('apollo_chat_history');
-    if (saved) {
-      try {
-        setMessages(JSON.parse(saved).map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) })));
-      } catch (e) { console.error(e); }
-    } else {
-      setMessages([{
-        id: 'welcome',
-        text: "Yo! Woof! I'm Apollo 🐾. I'm your travel buddy with the wet nose and the best tips. \n\nI can sniff out cheap flights, help you budget (so you can buy more treats), or just chat. Why did the tourist cross the road? To get to the airport! 😂 What's the plan?",
-        sender: 'apollo',
-        timestamp: new Date()
-      }]);
-    }
+    const loadHistory = async () => {
+      let loadedMessages: ChatMessage[] | null = null;
+
+      if (user.tier !== UserTier.Guest && user.id !== 'guest') {
+        try {
+          const docRef = doc(db, 'apolloHistory', user.id);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists() && docSnap.data().messages) {
+            loadedMessages = docSnap.data().messages.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }));
+          }
+        } catch (e) {
+          console.error("Failed to load Firebase history", e);
+        }
+      }
+
+      if (!loadedMessages) {
+        const saved = localStorage.getItem('apollo_chat_history');
+        if (saved) {
+          try {
+            loadedMessages = JSON.parse(saved).map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }));
+            if (user.tier !== UserTier.Guest && user.id !== 'guest') {
+              setDoc(doc(db, 'apolloHistory', user.id), { messages: JSON.parse(saved) }, { merge: true }).catch(console.error);
+            }
+          } catch (e) { console.error(e); }
+        }
+      }
+
+      if (loadedMessages && loadedMessages.length > 0) {
+        setMessages(loadedMessages);
+      } else {
+        setMessages([{
+          id: 'welcome',
+          text: "Yo! Woof! I'm Apollo 🐾. I'm your travel buddy with the wet nose and the best tips. \n\nI can sniff out cheap flights, help you budget (so you can buy more treats), or just chat. Why did the tourist cross the road? To get to the airport! 😂 What's the plan?",
+          sender: 'apollo',
+          timestamp: new Date()
+        }]);
+      }
+    };
+
+    loadHistory();
     checkLimits();
-  }, []);
+  }, [user.id]);
 
   // Proactive Apollo Tips based on user activity
   useEffect(() => {
@@ -82,9 +125,14 @@ export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onB
   }, [messages.length, hasShownTip]);
 
   useEffect(() => {
-    if (messages.length > 0) localStorage.setItem('apollo_chat_history', JSON.stringify(messages));
+    if (messages.length > 0) {
+      localStorage.setItem('apollo_chat_history', JSON.stringify(messages));
+      if (user.tier !== UserTier.Guest && user.id !== 'guest') {
+        setDoc(doc(db, 'apolloHistory', user.id), { messages: JSON.parse(JSON.stringify(messages)) }, { merge: true }).catch(console.error);
+      }
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
-  }, [messages, isThinking]);
+  }, [messages, user.id, isThinking]);
 
   const checkLimits = () => {
     const today = new Date().toDateString();
@@ -92,8 +140,8 @@ export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onB
     const count = parseInt(localStorage.getItem(storageKey) || '0');
     setMsgCount(count);
 
-    if (user.tier === UserTier.Guest && count >= 5) setLimitReached(true);
-    else if (user.tier === UserTier.Free && count >= 10) setLimitReached(true);
+    if (user.tier === UserTier.Guest && count >= 15) setLimitReached(true);
+    else if (user.tier === UserTier.Free && count >= 15) setLimitReached(true);
     else setLimitReached(false);
   };
 
@@ -108,6 +156,9 @@ export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onB
 
   const handleClearHistory = () => {
     localStorage.removeItem('apollo_chat_history');
+    if (user.tier !== UserTier.Guest && user.id !== 'guest') {
+      deleteDoc(doc(db, 'apolloHistory', user.id)).catch(console.error);
+    }
     setMessages([{ id: Date.now().toString(), text: "Fresh start! 🦴 Ask me for a joke or some hidden travel gems.", sender: 'apollo', timestamp: new Date() }]);
   };
 
@@ -130,12 +181,14 @@ export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onB
   };
 
   const handleSend = async (textOverride?: string) => {
-    if (limitReached && user.tier !== UserTier.Diamond && user.tier !== UserTier.Professional) return;
-
     const textToSend = textOverride || input;
     if (!textToSend.trim() || isThinking) return;
 
-    incrementCount();
+    if (!textOverride && limitReached && !hasDiamondAccess(user)) return;
+
+    if (!textOverride) {
+      incrementCount();
+    }
     const userMsg: ChatMessage = { id: Date.now().toString(), text: textToSend, sender: 'user', timestamp: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
@@ -174,7 +227,7 @@ export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onB
           <div>
             <h2 className="text-xl font-black text-white leading-none">Apollo AI</h2>
             <p className="text-xs text-brand-orange font-bold uppercase tracking-wider flex items-center gap-1">
-              {limitReached ? 'Limit Reached' : (user.tier === UserTier.Diamond || user.tier === UserTier.Professional ? 'Unlimited Access' : `${user.tier === UserTier.Guest ? 5 - msgCount : 10 - msgCount} msgs left`)}
+              {limitReached && !hasDiamondAccess(user) ? 'Limit Reached' : (hasDiamondAccess(user) ? 'Unlimited Access' : `${15 - msgCount} msgs left`)}
             </p>
           </div>
         </div>
@@ -182,6 +235,13 @@ export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onB
           <Trash2 size={16} />
         </button>
       </div>
+
+      {user.tier === UserTier.Guest && (
+        <div className="bg-brand-orange/20 border border-brand-orange/30 p-2 rounded-xl mb-4 text-center text-xs text-brand-orange font-medium flex items-center justify-center gap-2">
+          <Sparkles size={12} />
+          <span>Login to save your history and get 15 Apollo messages!</span>
+        </div>
+      )}
 
       {/* Chat Area */}
       <div className="flex-1 overflow-y-auto space-y-6 py-4 pr-2 scrollbar-hide">

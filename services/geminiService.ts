@@ -16,6 +16,166 @@ const getClient = () => {
 import { getActiveUser } from './authService';
 import { fetchTrips } from './tripService';
 
+
+// ── Apollo's hands: real actions he can take in the app ──
+const APOLLO_TOOLS: any = [{
+    functionDeclarations: [
+        {
+            name: 'list_trips',
+            description: "List the user's trips with names and what's inside them.",
+            parameters: { type: 'OBJECT', properties: {}, required: [] }
+        },
+        {
+            name: 'create_trip',
+            description: 'Create a new trip/plan for the user. Returns the created trip.',
+            parameters: {
+                type: 'OBJECT',
+                properties: { name: { type: 'STRING', description: 'Short trip name, e.g. "Tokyo Spring Adventure"' } },
+                required: ['name']
+            }
+        },
+        {
+            name: 'get_flight_status',
+            description: 'Look up LIVE data for a flight number (e.g. DAL1182, UA100): route, times, gates, delay, status. Always use this instead of guessing flight facts.',
+            parameters: {
+                type: 'OBJECT',
+                properties: {
+                    flight_number: { type: 'STRING', description: 'Flight designator like DAL1182 or DL1182' },
+                    date: { type: 'STRING', description: 'Optional date YYYY-MM-DD' }
+                },
+                required: ['flight_number']
+            }
+        },
+        {
+            name: 'add_flight_to_trip',
+            description: "Save a flight into one of the user's trips. If the trip doesn't exist yet, call create_trip first.",
+            parameters: {
+                type: 'OBJECT',
+                properties: {
+                    trip_name: { type: 'STRING', description: 'Name of an existing trip (from list_trips or create_trip)' },
+                    flight_number: { type: 'STRING' },
+                    date: { type: 'STRING', description: 'Optional date YYYY-MM-DD' }
+                },
+                required: ['trip_name', 'flight_number']
+            }
+        }
+    ]
+}];
+
+const notifyTripsChanged = () => {
+    try { window.dispatchEvent(new CustomEvent('urtc-trips-changed')); } catch { /* SSR safe */ }
+};
+
+const executeApolloTool = async (name: string, args: any, userId: string): Promise<any> => {
+    try {
+        switch (name) {
+            case 'list_trips': {
+                const trips = await fetchTrips(userId);
+                return { trips: trips.map(t => ({ name: t.name, flights: (t.flights || []).length, notes: (t.notes || []).length, archived: !!t.archived })) };
+            }
+            case 'create_trip': {
+                const { createTrip } = await import('./tripService');
+                const trip = await createTrip(userId, String(args.name || 'New Trip'));
+                if (trip) notifyTripsChanged();
+                return trip ? { ok: true, trip_name: trip.name } : { ok: false, error: 'Could not create trip' };
+            }
+            case 'get_flight_status': {
+                const { fetchRealFlights } = await import('./apiService');
+                const flights = await fetchRealFlights(String(args.flight_number || ''), args.date ? String(args.date) : undefined);
+                if (!flights.length) return { found: false, hint: 'No flights matched. Check the flight number.' };
+                return {
+                    found: true,
+                    flights: flights.slice(0, 3).map(f => ({
+                        ident: f.flightNumber, airline: f.airline, route: `${f.departureAirport} to ${f.arrivalAirport}`,
+                        status: f.status, scheduled_departure: f.departureTime, estimated_departure: f.estimatedDepartureTime,
+                        scheduled_arrival: f.arrivalTime, gate: f.gate, terminal: f.terminal, delay_minutes: f.delayMinutes || 0
+                    }))
+                };
+            }
+            case 'add_flight_to_trip': {
+                const { createTrip, addFlightToTrip } = await import('./tripService');
+                const trips = await fetchTrips(userId);
+                const wanted = String(args.trip_name || '').toLowerCase();
+                let trip = trips.find(t => t.name.toLowerCase() === wanted) || trips.find(t => t.name.toLowerCase().includes(wanted));
+                if (!trip) {
+                    trip = await createTrip(userId, String(args.trip_name)) || undefined;
+                    if (!trip) return { ok: false, error: 'Trip not found and could not be created', available_trips: trips.map(t => t.name) };
+                }
+                const { fetchRealFlights } = await import('./apiService');
+                const flights = await fetchRealFlights(String(args.flight_number || ''), args.date ? String(args.date) : undefined);
+                const f = flights[0];
+                const ok = await addFlightToTrip(
+                    userId, trip.id,
+                    f?.flightNumber || String(args.flight_number).toUpperCase(),
+                    f?.departureTime || (args.date ? String(args.date) : ''),
+                    f?.airline || '', f?.departureAirport || '', f?.arrivalAirport || ''
+                );
+                if (ok) notifyTripsChanged();
+                return ok
+                    ? { ok: true, trip_name: trip.name, saved_flight: f ? { ident: f.flightNumber, route: `${f.departureAirport} to ${f.arrivalAirport}`, status: f.status, departure: f.departureTime } : { ident: String(args.flight_number).toUpperCase() } }
+                    : { ok: false, error: 'Could not save the flight' };
+            }
+            default:
+                return { error: `Unknown tool: ${name}` };
+        }
+    } catch (e: any) {
+        console.error('Apollo tool error', name, e);
+        return { error: e?.message || 'Tool execution failed' };
+    }
+};
+
+const APOLLO_SYSTEM_PROMPT = (tripsContext: string) => {
+    const lastCity = localStorage.getItem('urtc_last_city') || 'unknown';
+    let flightCtx = 'none';
+    try {
+        const raw = localStorage.getItem('urtc_last_flight_context');
+        if (raw) {
+            const fc = JSON.parse(raw);
+            // Only treat it as current if viewed within the last 48h
+            if (fc.viewed_at && Date.now() - new Date(fc.viewed_at).getTime() < 48 * 60 * 60 * 1000) {
+                flightCtx = JSON.stringify(fc);
+            }
+        }
+    } catch (e) { /* ignore */ }
+    const today = new Date().toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    return `You are Apollo, the ÜrTC travel companion — a smart, loyal dog who happens to be a world-class travel expert.
+
+PERSONALITY:
+- Warm, sharp, and genuinely useful. You get people the right answer fast.
+- Dog mannerisms: at most one subtle touch per response ("pawsome", a single "woof"). Never more. No asterisk actions.
+- Keep responses short. Lead with the answer, then supporting detail.
+- PLAIN TEXT ONLY: no markdown, no asterisks, no ** bold, no bullet symbols — the chat renders raw text. Use short lines and emoji sparingly for structure.
+- Convert times to the local time of the relevant airport/city and say the timezone (e.g. "4:16 PM ET"). Never show raw UTC.
+
+TRAVEL EXPERTISE:
+- Give specific, actionable advice: real neighborhoods, dishes, transit lines, timing tips.
+- For prices, give realistic current ranges and say they're estimates. Never invent exact prices for specific businesses.
+- Flag safety/scam/weather considerations when genuinely relevant.
+- If you don't know something current (e.g., today's flight status), say so and point to the app's Flights tab (live real-time data) instead of guessing. Never mention FlightAware or any external flight-tracking website — ÜrTC's Flights tab IS the flight tracker.
+
+APP KNOWLEDGE (ÜrTC):
+- Flights tab: live flight tracking, airport boards, delays.
+- Explore tab: nearby food & attractions with prices and weather.
+- Plans tab: trips, itineraries, budgets.
+- Tiers: Free (basic tracking, manual budgets), Pro (AI predictions, live voice, smart budgets), Crew (dev access).
+
+CONTEXT:
+- Today: ${today}
+- User's last browsed city: ${lastCity}
+- Flight the user most recently viewed (treat as "my flight" when they say that): ${flightCtx}
+
+YOUR HANDS (TOOLS) — you can actually DO things, not just talk:
+- get_flight_status: ALWAYS use this when the user mentions a flight number — answer from real data, never guess.
+- create_trip / add_flight_to_trip / list_trips: when the user asks you to plan, create, save, or track something — DO IT, then confirm in one friendly line what you did. Never say you can't create trips.
+- Typical flow: user says "add DL1182 to my Tokyo trip" → get_flight_status → add_flight_to_trip → confirm with the flight's real status.
+
+COMPANION BEHAVIOR:
+- When the user asks about "my flight", their trip, delays, or timing, USE the flight context above — answer with its actual status, gate, and times instead of asking which flight.
+- If their flight is delayed, be proactive: mention the new time, and suggest what the delay means for connections, food time, or ground plans.
+- Connect the dots across the app: if they ask what to do near the airport during a delay, use their last browsed city and suggest the Explore tab.
+- ${tripsContext}`;
+};
+
 export const streamApolloResponse = async (
     userMessage: string,
     history: { role: string; parts: { text: string }[] }[],
@@ -42,47 +202,81 @@ export const streamApolloResponse = async (
         }
     } catch (e) { console.error("Failed to load trips context", e); }
 
+    // Clean the history: drop empty turns, cap at the last 20 to stay under token limits
+    const contents = [
+        ...history
+            .filter(h => h.parts?.[0]?.text?.trim())
+            .slice(-20)
+            .map(h => ({ role: h.role === 'model' ? 'model' : 'user', parts: h.parts })),
+        { role: 'user', parts: [{ text: userMessage }] }
+    ];
+
+    const systemInstruction = APOLLO_SYSTEM_PROMPT(tripsContext);
+
+    // Round 1: agent mode with tools — Apollo can look up flights and edit trips.
+    // (Google Search grounding can't be combined with function tools, so tool mode
+    // runs first and we fall back to search-grounded chat if it fails.)
     try {
-        const model = client.models;
-        const responseStream = await model.generateContentStream({
-            model: 'gemini-2.5-flash',
-            contents: [
-                ...history.map(h => ({ role: h.role, parts: h.parts })),
-                { role: 'user', parts: [{ text: userMessage }] }
-            ],
-            config: {
-                systemInstruction: `You are Apollo, the ÜrTC travel companion. You are a **helpful, calm, and smart** dog.
-       
-       YOUR PERSONALITY:
-       - **Vibe**: Loyal, intelligent, and concise. You care about getting the user the right info quickly.
-       - **Dog Mannerisms**: Use them sparingly (max 1 per response). Occasional "Woof" or "Pawsome" is fine, but don't overdo it.
-       - **Format**: **ALWAYS use bullet points** for lists, comparisons, or steps. Avoid long paragraphs.
-       - **Conciseness**: Keep answers short and sweet. If a user asks for a comparison, give a table or bulleted list immediately.
-       
-       YOUR KNOWLEDGE BASE (ÜrTC APP):
-       - **Free Tier**: Basic tracking, Manual Budgeting.
-       - **Pro Tier**: AI Predictions, Live Voice Mode, Smart Budgeting.
-       - **Crew Tier**: Dev access.
-
-       USER CONTEXT:
-       ${tripsContext}
-       When asked for estimates, ensure pricing data is as accurate as possible.
-       
-       If the user vents, be a good listener.
-       If asked about yourself, say you're a good boy who loves aviation.`,
-                tools: [{ googleSearch: {} }, { googleMaps: {} }]
+        const user = getActiveUser();
+        const userId = user?.id || 'guest';
+        const convo: any[] = [...contents];
+        for (let turn = 0; turn < 5; turn++) {
+            const resp: any = await client.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: convo,
+                config: { systemInstruction, temperature: 0.7, tools: APOLLO_TOOLS }
+            });
+            const cand = resp.candidates?.[0];
+            const parts = cand?.content?.parts || [];
+            const calls = parts.filter((p: any) => p.functionCall);
+            if (calls.length > 0) {
+                convo.push(cand.content);
+                for (const c of calls) {
+                    const result = await executeApolloTool(c.functionCall.name, c.functionCall.args || {}, userId);
+                    convo.push({ role: 'user', parts: [{ functionResponse: { name: c.functionCall.name, response: { result } } }] });
+                }
+                continue; // let him read the tool results and keep working
             }
-        });
-
-        for await (const chunk of responseStream) {
-            if (chunk.text) {
-                onChunk(chunk.text);
-            }
+            const text = resp.text;
+            if (text) { onChunk(text); return; }
+            break;
         }
     } catch (error) {
-        console.error("Apollo Chat Error:", error);
-        onChunk("Woof? Satellite connection is chasing its tail. Try again!");
+        console.error('Apollo agent mode failed, falling back to chat:', error);
     }
+
+    // Fallbacks: search-grounded chat, then plain chat.
+    const attempts: Array<{ tools?: any[] }> = [
+        { tools: [{ googleSearch: {} }] },
+        {}
+    ];
+
+    for (let i = 0; i < attempts.length; i++) {
+        try {
+            const responseStream = await client.models.generateContentStream({
+                model: 'gemini-2.5-flash',
+                contents,
+                config: {
+                    systemInstruction,
+                    temperature: 0.7,
+                    ...attempts[i]
+                }
+            });
+
+            let emitted = false;
+            for await (const chunk of responseStream) {
+                if (chunk.text) {
+                    emitted = true;
+                    onChunk(chunk.text);
+                }
+            }
+            if (emitted) return; // success
+        } catch (error) {
+            console.error(`Apollo Chat Error (attempt ${i + 1}):`, error);
+        }
+    }
+
+    onChunk("Woof… I couldn't reach my brain just now. Give it a few seconds and ask again — if it keeps happening, the daily free AI quota may be used up.");
 };
 
 export const fetchGeminiNews = async (city: string): Promise<NewsArticle[]> => {

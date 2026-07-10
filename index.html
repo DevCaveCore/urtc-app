@@ -8,6 +8,11 @@
   <title>ÜrTC - Travel Companion</title>
   <meta name="description" content="ÜrTC by Cave Core Dynamics — Your AI-powered travel companion. Track flights, explore cities, plan budgets, and get help from Apollo AI. Travel Evolved." />
   <meta name="theme-color" content="#08090C" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="ÜrTC" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="application-name" content="ÜrTC" />
   <meta property="og:title" content="ÜrTC - Travel Evolved" />
   <meta property="og:description" content="AI-powered travel companion by Cave Core Dynamics. Track flights via FlightAware, explore cities, plan trips with Apollo AI." />
   <meta property="og:type" content="website" />
@@ -22,11 +27,27 @@
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Google Maps -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAm5lbG7x6bdpXyXBzjYM7z9HxwOOnx3yw&libraries=places,marker,geometry&v=weekly"></script>
+  <!-- Google Maps — v=beta required for the photorealistic 3D (maps3d) flight map -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=%VITE_GOOGLE_MAPS_API_KEY%&libraries=places,marker,geometry&v=beta"></script>
 
   <!-- Google AdSense -->
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9455431514273237" crossorigin="anonymous"></script>
+
+  <!-- Viator Banner Ads -->
+  <script async src="https://partners.vtrcdn.com/static/scripts/banners/banners.js"></script>
+
+  <!-- Stay22 Affiliate Script -->
+  <script>
+    (function (s, t, a, y, twenty, two) {
+      s.Stay22 = s.Stay22 || {};
+      s.Stay22.params = { lmaID: '6a3e5baf1b730bc0adfe1f08' };
+      twenty = t.createElement(a);
+      two = t.getElementsByTagName(a)[0];
+      twenty.async = 1;
+      twenty.src = y;
+      two.parentNode.insertBefore(twenty, two);
+    })(window, document, 'script', 'https://scripts.stay22.com/letmeallez.js');
+  </script>
 
   <script>
     tailwind.config = {
@@ -284,6 +305,57 @@
     .delay-300 { animation-delay: 0.3s; }
     .delay-400 { animation-delay: 0.4s; }
     .delay-500 { animation-delay: 0.5s; }
+
+    /* ─── Multi-platform responsive ─── */
+    
+    /* Ensure full viewport height on iOS Safari */
+    html, body, #root {
+      height: 100%;
+      min-height: 100dvh;
+      overflow-x: hidden;
+    }
+
+    /* Desktop: give the app a proper centered container feel */
+    @media (min-width: 768px) {
+      body {
+        background: #050608;
+      }
+      #root {
+        max-width: 100%;
+        margin: 0 auto;
+      }
+    }
+
+    /* Large desktop: constrain the app width for ultra-wide monitors */
+    @media (min-width: 1280px) {
+      #root {
+        max-width: 1280px;
+        border-left: 1px solid rgba(255,255,255,0.03);
+        border-right: 1px solid rgba(255,255,255,0.03);
+      }
+    }
+
+    /* Tablet landscape mode */
+    @media (min-width: 768px) and (orientation: landscape) {
+      .pill-nav {
+        max-width: 600px;
+        margin: 0 auto;
+      }
+    }
+
+    /* iOS PWA standalone mode */
+    @media all and (display-mode: standalone) {
+      body {
+        padding-top: env(safe-area-inset-top, 0px);
+      }
+    }
+
+    /* Fix for iOS/Android address bar height changes */
+    @supports (height: 100dvh) {
+      html, body, #root {
+        min-height: 100dvh;
+      }
+    }
   </style>
 </head>
 

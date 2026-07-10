@@ -27,7 +27,7 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({ onClose }) => 
         },
         {
             title: "Your Plans",
-            desc: "Use the Plans tab to manage itineraries and save places. Sync Travel coming soon in Version 1.3!",
+            desc: "Use the Plans tab to manage itineraries and save places. Sync Travel coming soon!",
             icon: <CheckCircle size={48} className="text-brand-orange" />
         }
     ];

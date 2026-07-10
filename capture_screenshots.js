@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 const BASE_URL = 'http://localhost:5174';
-const OUTPUT_DIR = 'screenshots';
+const OUTPUT_DIR = 'CCD UrTC Interactive Demo';
 
 const VIEWPORTS = {
     ios: { width: 393, height: 852, isMobile: true, name: 'iOS (iPhone 14 Pro)' },
@@ -90,9 +90,35 @@ async function capture() {
 
         const page = await browser.newPage();
         await page.setViewport(viewport);
+        const context = browser.defaultBrowserContext();
+        await context.overridePermissions(BASE_URL, ['geolocation']);
+        await page.setGeolocation({ latitude: 33.7490, longitude: -84.3880 });
+
+        // Force mock the geolocation API to bypass permission dialogues and errors
+        await page.evaluateOnNewDocument(() => {
+            navigator.geolocation.getCurrentPosition = (success) => {
+                success({ coords: { latitude: 33.7490, longitude: -84.3880 } });
+            };
+        });
 
         // Go to Home first to load app
         await page.goto(BASE_URL, { waitUntil: 'networkidle0' });
+
+        // Set local storage to unlock dev tier, bypass terms, and skip diamond tutorial
+        await page.evaluate(() => {
+            localStorage.setItem('urtc_active_user', JSON.stringify({
+                id: 'code-screenshot',
+                username: 'Hello User',
+                passwordHash: 'access-code',
+                tier: 'Diamond',
+                savedTrips: []
+            }));
+            localStorage.setItem('urtc_terms_accepted', 'true');
+            localStorage.setItem('urtc_diamond_tutorial_seen', 'true');
+        });
+        
+        // Reload to apply local storage
+        await page.reload({ waitUntil: 'networkidle0' });
 
         // Wait for splash screen to clear (it has a 4.5s timer in App.tsx)
         console.log('Waiting for splash screen...');

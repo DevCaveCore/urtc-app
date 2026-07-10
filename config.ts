@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
+// API keys live in .env.local (git-ignored). See .env.example for the shape.
 export const API_KEYS = {
-    FLIGHTAWARE: "ydaGQPxfpA94dNZ05GRNur8vzCofygmn",
-    OWM: "20372103888ca0c31fa1bb6a11925209",
-    GOOGLE_MAPS: "AIzaSyAm5lbG7x6bdpXyXBzjYM7z9HxwOOnx3yw",
+    FLIGHTAWARE: import.meta.env.VITE_FLIGHTAWARE_API_KEY || "",
+    OWM: import.meta.env.VITE_OWM_API_KEY || "",
+    GOOGLE_MAPS: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "",
     GEMINI: import.meta.env.VITE_GEMINI_API_KEY
 };

@@ -40,6 +40,7 @@ export interface Flight {
   terminal?: string;
   gateDestination?: string;
   terminalDestination?: string;
+  baggage?: string;
   estimatedDepartureTime?: string;
   actualDepartureTime?: string;
   estimatedArrivalTime?: string;
@@ -50,6 +51,10 @@ export interface Flight {
   delayMinutes?: number;
   durationMinutes?: number | null;
   price?: number;
+  latitude?: number;
+  longitude?: number;
+  heading?: number;
+  altitude?: number;
   insight?: DelayInsight;
   websiteUrl?: string;
   inboundFlight?: {
@@ -266,9 +271,8 @@ export interface UserAccount {
   email?: string;
   passwordHash: string;
   tier: UserTier;
+  trialEndsAt?: string; // ISO date — free Diamond trial expiry
   savedTrips: string[]; // IDs of saved trips
-  xp: number;
-  level: number;
   promoOptIn?: boolean;
   rememberMe?: boolean;
   avatarUrl?: string;
@@ -276,10 +280,141 @@ export interface UserAccount {
   isPrivate?: boolean;
 }
 
-export const getRankTitle = (level: number): string => {
-  if (level >= 50) return "Captain";
-  if (level >= 20) return "First Officer";
-  if (level >= 10) return "Flight Crew";
-  if (level >= 5) return "Frequent Flyer";
-  return "Passenger";
-};
+// === AeroAPI Premium Types ===
+
+export interface ForesightPrediction {
+  predicted_out?: string;
+  predicted_off?: string;
+  predicted_on?: string;
+  predicted_in?: string;
+  predicted_out_source?: string;
+  predicted_off_source?: string;
+  predicted_on_source?: string;
+  predicted_in_source?: string;
+  predicted_taxi_out_duration?: number;
+  predicted_taxi_out_duration_source?: string;
+}
+
+export interface FlightRouteWaypoint {
+  name: string;
+  latitude: number;
+  longitude: number;
+  distance_from_origin: number;
+  distance_this_leg: number;
+  distance_to_destination: number;
+  outbound_course: number;
+  type: string;
+}
+
+export interface FlightRoute {
+  route_distance: string;
+  fixes: FlightRouteWaypoint[];
+}
+
+export interface AirportInfo {
+  code: string;
+  code_icao: string;
+  code_iata: string;
+  name: string;
+  city: string;
+  state?: string;
+  country?: string;
+  timezone: string;
+  latitude: number;
+  longitude: number;
+  wiki_url?: string;
+  airport_info_url?: string;
+}
+
+export interface AirportFlightCounts {
+  departed: number;
+  enroute: number;
+  scheduled_departures: number;
+  scheduled_arrivals: number;
+}
+
+export interface AirportWeatherForecast {
+  conditions: string;
+  temp_air: number;
+  temp_dewpoint: number;
+  temp_perceived: number;
+  wind_speed: number;
+  wind_direction: number;
+  visibility: string;
+  cloud_coverage: string;
+  pressure: number;
+  timestamp: string;
+}
+
+export interface NearbyAirport {
+  code: string;
+  name: string;
+  city: string;
+  distance: number;
+  heading: number;
+}
+
+export interface RouteStats {
+  route_distance: number;
+  avg_duration: number;
+  filed_altitude: number;
+  last_departure_time: string;
+}
+
+export interface OperatorInfo {
+  icao: string;
+  iata: string;
+  name: string;
+  callsign: string;
+  country: string;
+  location: string;
+  shortname: string;
+}
+
+export interface OperatorFlightCounts {
+  airborne: number;
+  flights_last_24_hours: number;
+}
+
+export interface AircraftOwner {
+  name: string;
+  location: string;
+  location2?: string;
+  state?: string;
+  website?: string;
+}
+
+export interface AircraftTypeInfo {
+  type: string;
+  manufacturer: string;
+  description: string;
+  engine_type?: string;
+  engine_count?: number;
+}
+
+export interface DisruptionCount {
+  entity_type: string;
+  entity_id?: string;
+  delays: number;
+  cancellations: number;
+  total: number;
+}
+
+export interface FlightAlert {
+  id: number;
+  ident?: string;
+  origin?: string;
+  destination?: string;
+  aircraft_type?: string;
+  date_start?: string;
+  date_end?: string;
+  channels: { target_url: string; channel_type: string }[];
+  events: string[];
+  enabled: boolean;
+}
+
+export interface GlobalDelay {
+  airport_code: string;
+  delay_index: number;
+  reasons: string[];
+}
