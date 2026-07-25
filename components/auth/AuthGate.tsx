@@ -36,9 +36,11 @@ export const AuthGate: React.FC<Props> = ({ children, user, onUserChange }) => {
     return <>{children}</>;
   }
 
+  const continueAsGuest = () => onUserChange(getActiveUser()); // getActiveUser falls back to a Bronze guest
+
   return view === 'login' ? (
-    <LoginView onSuccess={onUserChange} onRegisterClick={() => setView('register')} />
+    <LoginView onSuccess={onUserChange} onRegisterClick={() => setView('register')} onClose={continueAsGuest} />
   ) : (
-    <RegisterView onSuccess={onUserChange} onLoginClick={() => setView('login')} />
+    <RegisterView onSuccess={onUserChange} onLoginClick={() => setView('login')} onClose={continueAsGuest} />
   );
 };

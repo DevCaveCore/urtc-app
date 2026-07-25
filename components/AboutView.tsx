@@ -73,6 +73,9 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
     return `${base}?${params.toString()}`;
  };
 
+ // Store policy: native Android/iOS builds can't sell subscriptions via external links.
+ const isNativeApp = typeof (window as any).Capacitor !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.();
+
  const getFeatures = (tier: string) => {
     switch (tier) {
         case UserTier.Guest:
@@ -122,7 +125,7 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
  const renderCard = (tier: string, title: string, price: string, colorClass: string, icon: React.ReactNode, isActive: boolean) => (
     <div 
         onClick={() => setSelectedPlan(tier)}
-        className={`relative overflow-hidden rounded-2xl p-6 border transition-all duration-300 cursor-pointer group ${isActive ? 'border-white/50 shadow-2xl scale-[1.02]' : 'border-transparent opacity-80 hover:opacity-100 hover:scale-[1.01] hover:border-white/10'} ${colorClass}`}
+        className={`relative overflow-hidden rounded-2xl p-4 border transition-all duration-300 cursor-pointer group ${isActive ? 'border-white/50 shadow-2xl scale-[1.02]' : 'border-transparent opacity-80 hover:opacity-100 hover:scale-[1.01] hover:border-white/10'} ${colorClass}`}
     >
         <div className="relative z-10 flex justify-between items-start">
             <div>
@@ -419,8 +422,8 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
 
      {/* PLAN DETAILS MODAL */}
      {selectedPlan && (
-         <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-             <div className="w-full max-w-sm bg-[#151921] border border-white/20 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
+         <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+             <div className="w-full max-w-sm bg-[#151921] border border-white/20 rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[88vh]">
                 <div className="p-6 pb-2 relative">
                     <button onClick={() => setSelectedPlan(null)} className="absolute top-4 right-4 p-2 bg-white/5 rounded-full text-gray-400 hover:text-white transition"><X size={20}/></button>
                     <h3 className="text-3xl font-black italic tracking-tighter text-white mb-1">{selectedPlan}</h3>
@@ -429,7 +432,7 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
                     </p>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6 pt-2">
+                <div className="flex-1 overflow-y-auto overscroll-contain p-6 pt-2 pb-safe">
                     <ul className="space-y-3">
                         {getFeatures(selectedPlan).map((feat, i) => (
                             <li key={i} className="flex items-start gap-3 text-gray-300 text-sm">
@@ -439,8 +442,13 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
                         ))}
                     </ul>
 
-                    {/* Diamond Tier Pricing Options */}
-                    {selectedPlan === UserTier.Diamond && (
+                    {/* Diamond Tier Pricing Options (web only — store builds use store billing) */}
+                    {selectedPlan === UserTier.Diamond && isNativeApp && (
+                        <div className="mt-6 border-t border-white/10 pt-4">
+                            <p className="text-xs text-center text-gray-400 leading-relaxed">Diamond subscriptions are currently managed through the ÜrTC website account.</p>
+                        </div>
+                    )}
+                    {selectedPlan === UserTier.Diamond && !isNativeApp && (
                         <div className="mt-6 space-y-2 border-t border-white/10 pt-4">
                             <h4 className="text-sm font-bold text-white mb-2">Choose your billing cycle:</h4>
                             <p className="text-[10px] text-center text-sky-300 bg-sky-400/10 border border-sky-400/20 rounded-lg py-1.5 px-2 mb-1">New accounts get 7 days of Diamond free — no card needed.</p>

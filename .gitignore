@@ -33,3 +33,7 @@ GROWTH-PLAYBOOK.md
 *.tmpbak
 .firebase/
 functions/node_modules
+
+# Android signing keys — NEVER commit
+*.jks
+*.keystore

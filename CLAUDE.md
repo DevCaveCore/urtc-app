@@ -1,0 +1,40 @@
+# CLAUDE.md — ÜrTC / Cave Core Dynamics
+
+## Who & What
+- **Company:** Cave Core Dynamics™ (CCD) — two founders: **Winter Green** (tech lead, the one in these sessions) and **Claude Walker** (ex-Delta flight attendant, B.S. Psychology — product feel, people side; cwalker@ is the Google/Firebase account). Contact: admin@cavecoredynamics.org. When explaining things for Claude Walker, use plain language and aviation/crew analogies.
+- **Product:** ÜrTC — an **AI travel companion app** (NOT just a flight tracker). Positioning: "the AI planners have no live data; the trackers have no brain; ÜrTC has both."
+- **Goal:** $10k/month revenue ($20k total across both founders). Realistic path mapped in GROWTH-PLAYBOOK.md.
+- **Mascot/brain:** **Apollo** — a golden retriever travel companion. Voice rule: "companion, not concierge — he's secretly staff but openly a companion." Max ONE dog-ism per response, plain text (no markdown in chat), local times with timezone, NEVER mention FlightAware or external travel apps/sites.
+
+## Product state (as of July 2026, v1.1 LIVE)
+- **Deployed:** https://urtc-app.web.app (Firebase Hosting, project `urtc-app`). GitHub: DevCaveCore/urtc-app (was public with leaked keys — should now be private; keys need rotation if not done).
+- **Shell:** 4 tabs (Today · Flights · Explore · Trips) + Apollo floating orb → concierge sheet over any screen + About behind header gear. v1.1 badges.
+- **Flights:** unified omni-search (flight #, airport, route, airline fleet, tail #), optional dates ("Auto — finds the current flight"), passenger-grade statuses ("Delayed +45m", "Rescheduled"), Gates & Baggage panel, dark map with flight path, share button, delay-moment Diamond upsell.
+- **Explore (CityView):** geolocation-anchored — weather+AQI+places all from same coords, "Around You Now" nearby feed with filter chips (All/Coffee/Eat/Drinks/Parks/Museums/Shops), Closest Gem hero, bookmarks, walk times, watchPosition refresh at ~250m movement, locate-me map button.
+- **Apollo (geminiService):** Gemini 2.5 Flash with **function tools**: list_trips, create_trip, get_flight_status (real AeroAPI data), add_flight_to_trip; fires `urtc-trips-changed` event to live-refresh UI. Knows the user's last-viewed flight via localStorage `urtc_last_flight_context` + chips prefill via `urtc_apollo_prefill`. Fallback chain: tools → googleSearch chat → plain chat. claudeService.ts exists dormant (switch = 1 import line + Anthropic key + /apollo function, currently removed).
+- **Trips (ItineraryView):** gradient hero cards with countdown chips (tripTiming — trusts real flight dates), Apollo planner CTA on empty state, Budget dashboard (progress meter, emoji expense rows with % share, "Sniff This Budget" button).
+- **Tiers:** Bronze(guest)/Silver(free)/Diamond(paid: $4.99wk/$13.99mo/$129.99yr via Stripe Payment Links)/Professional/Dev. **7-day Diamond trial on signup** (client-side `trialEndsAt`, `hasDiamondAccess()` in authService). Diamond gates: flight alerts (locked button), AI-predicted times (blurred teaser), no ads, unlimited Apollo (15/day free).
+- **Payments:** Stripe Payment Links carry `client_reference_id`; Firebase function `stripewebhook` (https://stripewebhook-dew7jo76pa-uc.a.run.app) verifies + sets Firestore users/{uid}.tier=Diamond. Secrets: STRIPE_SECRET_KEY (real), STRIPE_WEBHOOK_SECRET. **Live purchase test still pending.**
+- **Functions (functions/index.js, Node 22):** `aeroapi` proxy — server-side AEROAPI_KEY secret (client key irrelevant now), shared cache (memory + Firestore aeroapi_cache, TTLs: boards 60s, positions 20s, schedules 12h, history 6h), invoker:public + org policy override (Domain restricted sharing = Allow all on urtc-app), /aeroapi/__diag debug route (REMOVE before wide launch). `stripewebhook` (secrets bound, invoker public). LESSON: v2 functions only bind secrets DECLARED in options.secrets — CLI skips unchanged code, so bump a version comment to force redeploy/rebind.
+- **Keys:** moved to .env.local (VITE_FLIGHTAWARE_API_KEY, VITE_OWM_API_KEY, VITE_GOOGLE_MAPS_API_KEY, VITE_GEMINI_API_KEY); config.ts reads env; index.html uses %VITE_GOOGLE_MAPS_API_KEY%. Firebase client key in firebaseClient.ts is fine (public by design). Old keys live in public git history → ROTATE.
+- **Native:** android/ (Capacitor, generated) + ios/ (needs `npx cap sync` on Mac before Xcode builds). Apple requires Sign in with Apple (Google login exists) + IAP for subscriptions on iOS (RevenueCat planned) — Stripe links NOT allowed for iOS digital goods.
+
+## Roadmap (agreed order)
+1. ✅ DONE (Jul 11 2026): payments E2E VERIFIED — live $4.99 purchase → webhook 200 → users/{uid}.tier=Diamond written. Firestore database was MISSING entire time; created (default), Native mode, nam5, rules published (users/trips/saved_places owner-only; aeroapi_cache server-only). A stray named DB cwwgward985 also exists (unused). FLIGHTS LIVE IN PROD. Root causes today: org Domain-restricted-sharing policy (now Allow all), unbound secrets, missing (default) Firestore, compute SA missing roles (added: Cloud Build SA, Logs Writer, Artifact Registry Writer, Cloud Datastore User).
+2. **Push notifications** (FCM + AeroAPI alerts webhook) = the money feature / v1.2.
+3. API caching before 10k MAU (Places grid 24h, airport boards 60s shared, weather 15min) — margin depends on it.
+4. Sign in with Apple + RevenueCat → App Store; Play Store via Console ($25) + signed AAB.
+5. Bookings: affiliate rails → Duffel → "Book with Apollo" (6-month map in playbook).
+6. Bones XP economy + Apollo cosmetics + mini-games; time-of-day adaptive custom map.
+7. 7-day trial expiry upsell card on Today; annual plan emphasis.
+
+## Working-with-Justin notes
+- Non-engineer; explain terminal steps click-by-click; he often types into the vite dev-server window by mistake — remind: new window (Cmd+N).
+- Google Workspace logins expire constantly → always `npx firebase-tools login --reauth && ... deploy` chained. No global firebase CLI — always `npx firebase-tools`.
+- Deploy = `npx firebase-tools deploy` from project root (functions need `cd functions && npm install` after dependency changes).
+- Wants: polish ("smooveness"), authenticity over vagueness (no "TBD"), Apollo personality everywhere, beat Flighty/TripIt.
+
+## Sandbox/session quirks (for Claude)
+- Folder mounts with NFD "ü" — bash path: `/sessions/<name>/mnt/u$'\xcc\x88'rtc---travel-companion` or glob `*rtc*`; host file tools may be blocked on this folder — use bash.
+- Mounted node_modules unreliable (EDEADLK) → copy source to /tmp/urtc, `PUPPETEER_SKIP_DOWNLOAD=1 npm install`, build there, cp results back with retry loops + cmp verify. Mount can't delete files (truncate instead). Git object writes on mount unreliable → have user run git in Terminal.
+- Docs in repo: GROWTH-PLAYBOOK.md (costs/ads/games/bookings/benefits — git-ignored), "eggs benedict/" (copyright source excerpts — git-ignored).

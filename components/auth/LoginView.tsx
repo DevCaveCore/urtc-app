@@ -3,14 +3,15 @@ import React, { useState } from 'react';
 import { login, redeemAccessCode, setRememberMe } from '../../services/authService';
 import { UserAccount } from '../../types';
 import { EnhancedApolloDogIcon } from '../ApolloDog';
-import { Lock, User, KeyRound, CheckCircle } from 'lucide-react';
+import { Lock, User, KeyRound, CheckCircle, X } from 'lucide-react';
 
 interface Props {
   onSuccess: (user: UserAccount) => void;
   onRegisterClick: () => void;
+  onClose?: () => void;
 }
 
-export const LoginView: React.FC<Props> = ({ onSuccess, onRegisterClick }) => {
+export const LoginView: React.FC<Props> = ({ onSuccess, onRegisterClick, onClose }) => {
   const [isCrewMode, setIsCrewMode] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,13 +38,24 @@ export const LoginView: React.FC<Props> = ({ onSuccess, onRegisterClick }) => {
   };
 
   return (
-    <div className="w-full bg-brand-surface border border-white/10 p-6 rounded-3xl shadow-2xl animate-in zoom-in-95 duration-300">
-        <div className="flex flex-col items-center mb-6">
-            <div className="bg-brand-orange/10 p-3 rounded-full mb-3">
+    <div className="w-full bg-[#101319] border border-white/10 p-6 rounded-[28px] shadow-2xl animate-in zoom-in-95 duration-300 relative overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-brand-orange/10 to-transparent pointer-events-none" />
+        {onClose && (
+            <button
+                type="button"
+                onClick={onClose}
+                title="Continue as guest"
+                className="absolute top-4 right-4 z-20 p-2 text-white/40 hover:text-white bg-white/5 hover:bg-white/10 rounded-full transition"
+            >
+                <X size={18} />
+            </button>
+        )}
+        <div className="relative z-10 flex flex-col items-center mb-6">
+            <div className="bg-brand-orange/10 border border-brand-orange/20 p-3 rounded-full mb-3 shadow-lg shadow-brand-orange/10">
                 <EnhancedApolloDogIcon size={60} interactive />
             </div>
-            <h2 className="text-2xl font-bold text-white">{isCrewMode ? 'Crew Access' : 'Welcome Back'}</h2>
-            <p className="text-xs text-gray-400 mt-1">Login to sync your trips.</p>
+            <h2 className="text-2xl font-black text-white tracking-tight">{isCrewMode ? 'Crew Access' : 'Welcome aboard'}</h2>
+            <p className="text-xs text-gray-400 mt-1.5">{isCrewMode ? 'Enter your crew credentials.' : 'Apollo kept your seat warm.'}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -100,7 +112,7 @@ export const LoginView: React.FC<Props> = ({ onSuccess, onRegisterClick }) => {
                 <>
                     <div className="flex items-center my-4">
                         <div className="flex-grow border-t border-white/10"></div>
-                        <span className="px-3 text-xs text-gray-500 font-bold uppercase tracking-widest">Or Continue With</span>
+                        <span className="px-3 text-[10px] text-gray-500 font-bold uppercase tracking-widest">One-tap instead</span>
                         <div className="flex-grow border-t border-white/10"></div>
                     </div>
                     

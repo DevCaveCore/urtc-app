@@ -351,7 +351,7 @@ const AppContent: React.FC = () => {
 
             {/* Flight tracking Dynamic Island */}
             {trackedActivity && (
-                <div className="fixed top-4 left-4 right-4 z-50 max-w-md mx-auto animate-in fade-in slide-in-from-top-4 duration-300">
+                <div className="fixed top-safe left-4 right-4 z-50 max-w-md mx-auto animate-in fade-in slide-in-from-top-4 duration-300">
                   <DynamicIsland activity={trackedActivity} alertMessage={alertMessage} onClose={() => setTrackedActivity(null)} />
                 </div>
             )}
@@ -361,14 +361,14 @@ const AppContent: React.FC = () => {
 
             {/* Offline Banner */}
             {isOffline && (
-              <div className="fixed top-0 left-0 w-full z-[60] bg-red-500/90 backdrop-blur-md text-white text-xs font-bold text-center py-2 flex justify-center gap-2 items-center">
+              <div className="fixed top-0 left-0 w-full z-[60] bg-red-500/90 backdrop-blur-md text-white text-xs font-bold text-center pb-2 pt-safe-header flex justify-center gap-2 items-center">
                 <WifiOff size={12} /> No Internet Connection
               </div>
             )}
 
             {/* ─── Floating Glass Header (non-immersive tabs only) ─── */}
             {!isImmersive && (
-              <header className="sticky top-0 z-30 px-4 pt-4 pb-3">
+              <header className="sticky top-0 z-30 px-4 pt-safe-header pb-3">
                 <div className="glass rounded-2xl px-4 py-2.5 flex items-center justify-between">
                   {/* Logo */}
                   <div className="flex items-center gap-2.5">
@@ -442,17 +442,17 @@ const AppContent: React.FC = () => {
                 {activeTab === Tab.Home && <HomeView user={user} onNavigate={handleTabChange} onExplore={handleExplore} onStartTour={handleStartTour} budgetItems={budgetItems} budgetLimit={budgetLimit} />}
               </div>
               {mountedTabs.has(Tab.Flights) && (
-                <div style={{ display: activeTab === Tab.Flights ? 'block' : 'none' }}>
+                <div className="pt-safe-top" style={{ display: activeTab === Tab.Flights ? 'block' : 'none' }}>
                   <FlightView user={user} onViewCity={handleViewDestination} onTrackFlight={setTrackedActivity} />
                 </div>
               )}
               {mountedTabs.has(Tab.Explore) && (
-                <div style={{ display: activeTab === Tab.Explore ? 'block' : 'none' }}>
+                <div className="pt-safe-top" style={{ display: activeTab === Tab.Explore ? 'block' : 'none' }}>
                   <CityView onAddToBudget={addToBudget} initialCity={exploreCity} onCityChange={setExploreCity} theme={theme} />
                 </div>
               )}
               {mountedTabs.has(Tab.Wander) && (
-                <div style={{ display: activeTab === Tab.Wander ? 'block' : 'none' }}>
+                <div className="pt-safe-top" style={{ display: activeTab === Tab.Wander ? 'block' : 'none' }}>
                   <SocialView />
                 </div>
               )}

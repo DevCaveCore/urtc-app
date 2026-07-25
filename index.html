@@ -11,6 +11,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="ÜrTC" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0B0D10" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="application-name" content="ÜrTC" />
   <meta property="og:title" content="ÜrTC - Travel Evolved" />
@@ -297,6 +299,9 @@
     /* ─── Bottom safe area ─── */
     .pb-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
     .pt-safe-top { padding-top: env(safe-area-inset-top, 0px); }
+    /* Header/floating elements must clear the notch / Dynamic Island / status bar */
+    .pt-safe-header { padding-top: max(1rem, env(safe-area-inset-top, 16px)); }
+    .top-safe { top: max(1rem, env(safe-area-inset-top, 16px)); }
 
     /* ─── Stagger animation delays ─── */
     .delay-100 { animation-delay: 0.1s; }

@@ -7,9 +7,10 @@ import { ArrowLeft, Mail, User, KeyRound, CheckCircle } from 'lucide-react';
 interface Props {
   onSuccess: (user: UserAccount) => void;
   onLoginClick: () => void;
+  onClose?: () => void;
 }
 
-export const RegisterView: React.FC<Props> = ({ onSuccess, onLoginClick }) => {
+export const RegisterView: React.FC<Props> = ({ onSuccess, onLoginClick, onClose }) => {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -45,9 +46,16 @@ export const RegisterView: React.FC<Props> = ({ onSuccess, onLoginClick }) => {
        <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-brand-blue/10 rounded-full blur-[100px]" />
       
       <div className="w-full max-w-sm relative z-10">
-        <button onClick={onLoginClick} className="mb-6 flex items-center gap-2 text-gray-400 hover:text-white transition text-sm font-bold">
-            <ArrowLeft size={16} /> Back to Login
-        </button>
+        <div className="mb-6 flex items-center justify-between">
+            <button onClick={onLoginClick} className="flex items-center gap-2 text-gray-400 hover:text-white transition text-sm font-bold">
+                <ArrowLeft size={16} /> Back to Login
+            </button>
+            {onClose && (
+                <button onClick={onClose} title="Continue as guest" className="p-2 text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-full transition">
+                    <ArrowLeft size={0} className="hidden" />✕
+                </button>
+            )}
+        </div>
 
         <form onSubmit={handleSubmit} className="w-full bg-white/5 backdrop-blur-xl p-8 rounded-3xl border border-white/10 shadow-2xl animate-in slide-in-from-bottom-4">
             <h2 className="text-2xl font-black mb-2 text-white">Join the Crew</h2>

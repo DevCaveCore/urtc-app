@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { hasDiamondAccess } from '../services/authService';
+import { hotelSearchUrl, activitiesUrl } from '../services/affiliateService';
 import { Plus, Trash2, FileText, WifiOff, Heart, Cookie, PenLine, Calculator, QrCode, X, ChevronDown, Plane, Hotel, Ticket, Train, Sparkles, AlertCircle, Check, Loader2, Utensils, ShoppingBag, MapPin, Globe, Calendar, Lock, Download, ExternalLink, Share, Wine, ChevronLeft, CalendarPlus, FileOutput, Archive, RotateCcw } from 'lucide-react';
 import { Note, BudgetCategory, Pass, UserTier, Trip, TripFlight, UserAccount } from '../types';
 import { fetchTrips, createTrip, updateTrip, deleteTrip, addFlightToTrip, deleteFlightFromTrip } from '../services/tripService';
@@ -321,7 +322,7 @@ export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user, onAsk
   }
 
   // ----- TRIP DETAILS VIEW -----
-  return <TripDetailsView trip={selectedTrip} onBack={() => setSelectedTrip(null)} onUpdate={loadTrips} isPro={isPro} />;
+  return <TripDetailsView trip={selectedTrip} onBack={() => setSelectedTrip(null)} onUpdate={loadTrips} isPro={isPro} onAskApollo={onAskApollo} />;
 });
 
 const ChevronRight = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400"><path d="m9 18 6-6-6-6"/></svg>;
@@ -329,7 +330,7 @@ const ChevronRight = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" he
 // ==========================================
 // TRIP DETAILS COMPONENT
 // ==========================================
-const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack: () => void, onUpdate: () => void, isPro: boolean }) => {
+const TripDetailsView = ({ trip, onBack, onUpdate, isPro, onAskApollo }: { trip: Trip, onBack: () => void, onUpdate: () => void, isPro: boolean, onAskApollo?: () => void }) => {
     const [subTab, setSubTab] = useState<'flights' | 'budget' | 'notes' | 'places'>('flights');
     const [isGeneratingStory, setIsGeneratingStory] = useState(false);
 
@@ -494,12 +495,24 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
                 </div>
             </div>
 
-            <div className="px-2">
-                {(() => { const timing = tripTiming(trip); return (
-                    <span className={`inline-block text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full border mb-2 ${timing.cls}`}>{timing.label}</span>
-                ); })()}
-                <h2 className="text-3xl font-black text-white">{trip.name}</h2>
-                <p className="text-xs text-gray-500 mt-1.5">{trip.flights?.length || 0} flights · {(trip as any).places?.length || 0} places · {trip.notes?.length || 0} notes</p>
+            <div className="mx-2 relative overflow-hidden rounded-[28px] border border-white/10 bg-[#12151b] p-6">
+                <div className="absolute inset-0 bg-gradient-to-br from-brand-orange/20 via-brand-blue/5 to-transparent pointer-events-none" />
+                <div className="relative z-10">
+                    {(() => { const timing = tripTiming(trip); return (
+                        <span className={`inline-block text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full border mb-3 ${timing.cls}`}>{timing.label}</span>
+                    ); })()}
+                    <h2 className="text-3xl font-black text-white tracking-tight">{trip.name}</h2>
+                    <p className="text-xs text-white/40 mt-1.5 font-medium">{trip.flights?.length || 0} flights · {(trip as any).places?.length || 0} places · {trip.notes?.length || 0} notes{trip.destination ? ` · ${trip.destination}` : ''}</p>
+                    <button
+                        onClick={() => {
+                            try { localStorage.setItem('urtc_apollo_prefill', `Build me a day-by-day itinerary for my trip "${trip.name}"${trip.destination ? ` to ${trip.destination}` : ''} — use my saved flights and suggest food, sights, and timing around them.`); } catch { /* ignore */ }
+                            onAskApollo?.();
+                        }}
+                        className="mt-4 inline-flex items-center gap-2 bg-gradient-to-r from-brand-orange to-red-500 text-white text-sm font-bold px-5 py-2.5 rounded-2xl shadow-lg shadow-brand-orange/25 hover:scale-[1.03] active:scale-95 transition"
+                    >
+                        🐾 Plan this trip with Apollo
+                    </button>
+                </div>
             </div>
 
             {/* Sub-Navigation Tabs */}
@@ -532,6 +545,21 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
 
             {subTab === 'flights' && (
                 <div className="space-y-4 px-2">
+                    {(trip.flights?.length || 0) > 0 && (
+                        <a
+                            href={hotelSearchUrl(trip.destination || trip.flights?.[0]?.arrival_airport || trip.name, trip.flights?.[0]?.flight_date)}
+                            target="_blank" rel="noopener noreferrer"
+                            className="block bg-gradient-to-r from-brand-blue/15 to-brand-orange/10 border border-brand-blue/25 rounded-2xl p-4 hover:border-brand-blue/50 transition group"
+                        >
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="text-sm font-black text-white">🏨 Where are you staying?</div>
+                                    <div className="text-[11px] text-gray-400 mt-0.5">Flights are set — Apollo found stays near your arrival.</div>
+                                </div>
+                                <span className="text-[10px] font-black text-brand-blue whitespace-nowrap group-hover:underline">BROWSE →</span>
+                            </div>
+                        </a>
+                    )}
                     {trip.flights?.length === 0 ? (
                         <div className="text-center py-12 opacity-50 bg-white/5 rounded-3xl border border-white/5">
                             <Plane className="mx-auto mb-2 text-gray-500" size={32} />
@@ -706,6 +734,23 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro }: { trip: Trip, onBack
                 </div>
             )}
 
+            {subTab === 'places' && (trip.destination || trip.name) && (
+                <div className="px-2 mb-4">
+                    <a
+                        href={activitiesUrl(trip.destination || trip.name)}
+                        target="_blank" rel="noopener noreferrer"
+                        className="block bg-gradient-to-r from-purple-500/15 to-brand-orange/10 border border-purple-500/25 rounded-2xl p-4 hover:border-purple-400/50 transition group"
+                    >
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <div className="text-sm font-black text-white">🎟️ Things to do{trip.destination ? ` in ${trip.destination}` : ''}</div>
+                                <div className="text-[11px] text-gray-400 mt-0.5">Tours, tickets & experiences — book ahead, skip the lines.</div>
+                            </div>
+                            <span className="text-[10px] font-black text-purple-300 whitespace-nowrap group-hover:underline">EXPLORE →</span>
+                        </div>
+                    </a>
+                </div>
+            )}
             {subTab === 'places' && (
                 <div className="space-y-4 px-2">
                     <div className="flex justify-between items-center mb-4">

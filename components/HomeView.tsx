@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Plane, Building2, ArrowRight, Play, Sparkles, Zap, Notebook, CreditCard, TrendingUp, Map, Globe, Star, ExternalLink, MessageCircle } from 'lucide-react';
 import { UserAccount, UserTier, Tab, BudgetItem } from '../types';
+import { hasDiamondAccess, trialDaysLeft } from '../services/authService';
 
 interface HomeViewProps {
     user: UserAccount;
@@ -166,6 +167,40 @@ export const HomeView: React.FC<HomeViewProps> = React.memo(({ user, onNavigate,
                     </div>
                 </div>
             )}
+
+            {/* ── Trial expiry: the conversion moment ── */}
+            {(() => {
+                const paidTier = user.tier === UserTier.Diamond || user.tier === UserTier.Professional || user.tier === UserTier.Dev;
+                if (paidTier) return null;
+                const days = trialDaysLeft(user);
+                const expired = !!user.trialEndsAt && days === 0 &&
+                    (Date.now() - new Date(user.trialEndsAt).getTime()) < 5 * 24 * 60 * 60 * 1000;
+                if (days > 0 && days <= 3) {
+                    return (
+                        <button onClick={() => onNavigate(Tab.About)} className="w-full text-left bg-gradient-to-r from-[#8DE2FF]/15 to-[#3AB0FF]/15 border border-[#3AB0FF]/30 rounded-3xl p-4 flex items-center gap-3 hover:border-[#3AB0FF]/60 transition">
+                            <span className="text-2xl">💎</span>
+                            <div className="flex-1">
+                                <div className="text-sm font-black text-white">{days === 1 ? 'Last day of your Diamond trial' : `${days} days left of Diamond`}</div>
+                                <div className="text-[11px] text-white/50 mt-0.5">Keep zero ads, unlimited Apollo & flight alerts — from $4.99</div>
+                            </div>
+                            <span className="text-[10px] font-black text-[#3AB0FF] whitespace-nowrap">KEEP IT →</span>
+                        </button>
+                    );
+                }
+                if (expired) {
+                    return (
+                        <button onClick={() => onNavigate(Tab.About)} className="w-full text-left bg-white/[0.03] border border-white/10 rounded-3xl p-4 flex items-center gap-3 hover:border-[#3AB0FF]/40 transition">
+                            <span className="text-2xl">🐾</span>
+                            <div className="flex-1">
+                                <div className="text-sm font-black text-white">Apollo misses being unlimited</div>
+                                <div className="text-[11px] text-white/50 mt-0.5">Your Diamond trial ended — bring it back from $4.99</div>
+                            </div>
+                            <span className="text-[10px] font-black text-[#3AB0FF] whitespace-nowrap">RESTORE →</span>
+                        </button>
+                    );
+                }
+                return null;
+            })()}
 
             {/* ── Your Flight (concierge memory) ── */}
             {yourFlight && (
