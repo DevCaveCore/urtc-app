@@ -71,6 +71,7 @@ const isKnownAirport = (code: string): boolean => {
 export type SmartSearchResult =
     | { type: 'empty' }
     | { type: 'route'; origin: string; dest: string }
+    | { type: 'unresolved'; origin: string; dest: string }
     | { type: 'airport'; code: string; altFleet?: string }
     | { type: 'fleet'; opCode: string; altAirport?: string }
     | { type: 'tail'; tail: string }
@@ -81,12 +82,19 @@ const parseSmartSearch = (input: string): SmartSearchResult => {
     const cleaned = input.trim().toUpperCase();
     if (!cleaned) return { type: 'empty' };
 
-    // Route (e.g. ATL JFK, ATL-JFK, ATL TO JFK, KATL TO KJFK)
-    const routeMatch = cleaned.match(/^([A-Z]{3,4})\s*(?:TO|->)\s*([A-Z]{3,4})$/)
-        || cleaned.match(/^([A-Z]{3,4})\s*-\s*([A-Z]{3,4})$/)
-        || cleaned.match(/^([A-Z]{3,4})\s+([A-Z]{3,4})$/);
+    // Route — accepts codes AND full city names on either side:
+    // "ATL JFK", "ATL-JFK", "ATL TO JFK", "Atlanta to Miami", "Atlanta → Miami"
+    const routeMatch = cleaned.match(/^(.{2,})\s+(?:TO|->|→|–|—)\s+(.{2,})$/)   // explicit separator, spaced
+        || cleaned.match(/^([A-Z]{3,4})\s*(?:TO|->|→)\s*([A-Z]{3,4})$/)          // codes, separator, no spaces
+        || cleaned.match(/^([A-Z]{3,4})\s*-\s*([A-Z]{3,4})$/)                    // ATL-JFK
+        || cleaned.match(/^([A-Z]{3,4})\s+([A-Z]{3,4})$/);                       // ATL JFK
     if (routeMatch && !AIRLINE_MAP[cleaned]) {
-        return { type: 'route', origin: routeMatch[1], dest: routeMatch[2] };
+        // Turn whatever they typed into airport codes — a city name is a
+        // perfectly reasonable thing to type and used to silently fail.
+        const o = resolveAirportCode(routeMatch[1].trim());
+        const d = resolveAirportCode(routeMatch[2].trim());
+        if (o && d) return { type: 'route', origin: o, dest: d };
+        return { type: 'unresolved', origin: routeMatch[1].trim(), dest: routeMatch[2].trim() };
     }
 
     // Tail Number (N-number or international registration like C-FABC, G-ABCD)
@@ -109,6 +117,12 @@ const parseSmartSearch = (input: string): SmartSearchResult => {
 
     // Airline name or IATA code without a number ("DELTA", "DL") -> fleet
     if (AIRLINE_MAP[cleaned]) return { type: 'fleet', opCode: AIRLINE_MAP[cleaned] };
+
+    // A plain city name ("Atlanta", "Los Angeles") is an airport board
+    if (!/\d/.test(cleaned)) {
+        const cityCode = resolveAirportCode(cleaned);
+        if (cityCode) return { type: 'airport', code: cityCode };
+    }
 
     // Otherwise, assume Flight Number
     return { type: 'flight', flight: parseFlightNumber(cleaned) };
@@ -706,6 +720,11 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
 
             if (parsed.type === 'empty') {
                 setSearchError('Type a flight number, airport code, route (ATL to JFK), airline, or tail number.');
+            } else if (parsed.type === 'unresolved') {
+                // We understood the shape ("X to Y") but not one of the places —
+                // say WHICH one instead of returning nothing.
+                const bad = !resolveAirportCode(parsed.origin) ? parsed.origin : parsed.dest;
+                setSearchError(`We couldn't match "${bad}" to an airport. Try its 3-letter code (Atlanta is ATL, Miami is MIA) or pick from the suggestions.`);
             } else if (parsed.type === 'flight') {
                 setSearchMode('flight');
                 const results = await fetchRealFlights(parsed.flight, effDate, airlineFilter);
@@ -982,12 +1001,12 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                     <div className="flex flex-col sm:flex-row gap-3">
                         <div className="flex-1 relative min-w-[200px]">
                             <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-brand-orange">
-                                Search Anything
+                                Start Searching
                             </label>
                             <input
                                 id="flightSearchInput"
                                 type="text"
-                                placeholder={'Try "Delta 1182", "JFK", "ATL to LAX" or "N123AB"'}
+                                placeholder="Start typing here…"
                                 className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-orange/50 focus:border-brand-orange transition-all font-bold text-base pt-7"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
@@ -1073,7 +1092,7 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
 
                 {/* Helpful tip */}
                 <p className="mt-3 text-[11px] text-center text-gray-500 dark:text-white/30">
-                    One search does it all: flight number ("Delta 1182") • airport board ("JFK") • route ("ATL to LAX") • airline fleet ("DAL") • tail number ("N123AB")
+                    One search does it all: flight number ("Delta 1182") • airport or city ("JFK", "Atlanta") • route ("Atlanta to Miami") • airline fleet ("DAL") • tail number ("N123AB")
                 </p>
             </div>
 

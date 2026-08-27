@@ -288,9 +288,12 @@ export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user, onAsk
                             <div className="grid gap-4 lg:grid-cols-2">
                                 {archivedTrips.map(trip => (
                                     <SwipeToDelete key={trip.id} onDelete={() => handleDeleteTrip(trip.id)}>
-                                        <div 
+                                        {/* Background must stay OPAQUE: the swipe layer's red
+                                            "Delete" sits directly behind this card, and any
+                                            transparency lets it bleed through the trip name. */}
+                                        <div
                                             onClick={() => setSelectedTrip(trip)}
-                                            className="bg-white/50 dark:bg-[#151921]/60 p-5 rounded-3xl border border-gray-200 dark:border-white/5 shadow-sm flex justify-between items-center cursor-pointer active:scale-95 transition opacity-75 hover:opacity-100"
+                                            className="bg-gray-100 dark:bg-[#131720] p-5 rounded-3xl border border-gray-200 dark:border-white/5 shadow-sm flex justify-between items-center gap-3 cursor-pointer press press-card transition-colors hover:border-brand-orange/25"
                                         >
                                             <div className="flex-1 min-w-0">
                                                 <h3 className="font-bold text-xl text-gray-500 dark:text-gray-400 truncate">{trip.name}</h3>
@@ -300,15 +303,15 @@ export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user, onAsk
                                                     <span className="flex items-center gap-1"><Calculator size={12}/> {trip.budget_categories?.length || 0}</span>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-2 ml-2">
-                                                <button 
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                <button
                                                     onClick={(e) => { e.stopPropagation(); handleArchiveTrip(trip.id, false); }}
-                                                    className="p-2 bg-brand-orange/10 rounded-full text-brand-orange hover:bg-brand-orange/20 transition border border-brand-orange/20"
-                                                    title="Unarchive trip"
+                                                    className="flex items-center gap-1.5 px-3 py-2 bg-brand-orange/10 rounded-full text-brand-orange hover:bg-brand-orange hover:text-white transition border border-brand-orange/20 text-[11px] font-bold"
+                                                    title="Restore this trip to Active"
                                                 >
-                                                    <RotateCcw size={14} />
+                                                    <RotateCcw size={13} /> Restore
                                                 </button>
-                                                <ChevronRight />
+                                                <ChevronRight size={16} className="text-gray-400 dark:text-white/25" />
                                             </div>
                                         </div>
                                     </SwipeToDelete>
@@ -326,7 +329,9 @@ export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user, onAsk
   return <TripDetailsView trip={selectedTrip} onBack={() => setSelectedTrip(null)} onUpdate={loadTrips} isPro={isPro} onAskApollo={onAskApollo} />;
 });
 
-const ChevronRight = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400"><path d="m9 18 6-6-6-6"/></svg>;
+const ChevronRight = ({ size = 24, className = 'text-gray-400' }: { size?: number; className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m9 18 6-6-6-6"/></svg>
+);
 
 // ==========================================
 // TRIP DETAILS COMPONENT

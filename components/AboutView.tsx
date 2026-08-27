@@ -6,6 +6,7 @@ import { RegisterView } from './auth/RegisterView';
 // Payments run through Stripe Payment Links + the Customer Portal — no
 // Stripe.js needed here (loadStripe was downloading it on every visit for nothing).
 import { redeemAccessCode, logout, getActiveUser } from '../services/authService';
+import { APP_VERSION, APP_VERSION_LONG } from '../version';
 import { useLanguage } from '../i18n/context';
 import { PrivacyPolicy as PrivacyPolicyDoc, TermsOfService as TermsOfServiceDoc } from './LegalDocuments';
 
@@ -304,8 +305,8 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
                  {/* Version Badge */}
                  <div className="flex justify-between items-center">
                      <h2 className="text-xl font-bold text-gray-900 dark:text-white">About & Legal</h2>
-                     <div className="bg-brand-orange/10 text-brand-orange px-3 py-1 rounded-full text-xs font-bold border border-brand-orange/30 shadow-sm">
-                         v1.1.0
+                     <div className="bg-brand-orange/10 text-brand-orange px-3 py-1 rounded-full text-xs font-bold border border-brand-orange/30 shadow-sm" title={APP_VERSION_LONG}>
+                         {APP_VERSION}
                      </div>
                  </div>
 

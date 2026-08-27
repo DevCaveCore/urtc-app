@@ -21,6 +21,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { fetchRealFlights } from './services/apiService';
 import { useLanguage } from './i18n/context';
 import { AuthGate } from './components/auth/AuthGate';
+import { VERSION_BADGE, APP_VERSION } from './version';
 
 const SplashScreen: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   const [leaving, setLeaving] = useState(false);
@@ -79,8 +80,13 @@ const SplashScreen: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
           <div className="animate-contrail mx-auto mt-1 h-px w-[220px] bg-gradient-to-r from-transparent via-brand-orange/70 to-transparent" />
         </div>
 
-        {/* Maker mark */}
-        <p className="text-[10px] font-semibold text-white/25 tracking-[0.25em] uppercase">Cave Core Dynamics</p>
+        {/* Maker mark + build stamp */}
+        <div className="flex flex-col items-center gap-2">
+          <span className="text-[9px] font-black tracking-[0.2em] uppercase text-brand-orange bg-brand-orange/10 border border-brand-orange/25 px-2.5 py-1 rounded-full">
+            {VERSION_BADGE}
+          </span>
+          <p className="text-[10px] font-semibold text-white/25 tracking-[0.25em] uppercase">Cave Core Dynamics</p>
+        </div>
       </div>
     </div>
   );
@@ -411,7 +417,7 @@ const AppContent: React.FC = () => {
                 <Plane size={18} className="text-white" />
               </div>
               <span className="font-display text-xl font-bold tracking-tight text-white">Ür<span className="text-brand-orange">TC</span></span>
-              <span className="text-[9px] font-black bg-brand-orange/15 text-brand-orange px-1.5 py-0.5 rounded-full">v1.2</span>
+              <span className="text-[9px] font-black bg-brand-orange/15 text-brand-orange px-1.5 py-0.5 rounded-full whitespace-nowrap" title={APP_VERSION}>{VERSION_BADGE}</span>
             </div>
             {[
               { tab: Tab.Home, icon: <Home size={19} />, label: 'Today' },
@@ -491,7 +497,7 @@ const AppContent: React.FC = () => {
                         <h1 className="font-display text-lg font-bold tracking-tight leading-none text-white">
                           Ür<span className="gradient-text">TC</span>
                         </h1>
-                        <span className="text-[9px] font-bold bg-brand-orange/20 text-brand-orange px-1.5 py-0.5 rounded-full">v1.1</span>
+                        <span className="text-[9px] font-bold bg-brand-orange/20 text-brand-orange px-1.5 py-0.5 rounded-full whitespace-nowrap" title={APP_VERSION}>{VERSION_BADGE}</span>
                       </div>
                       <div className="flex items-center gap-1 mt-0.5">
                         <span className={`w-1.5 h-1.5 rounded-full ${
