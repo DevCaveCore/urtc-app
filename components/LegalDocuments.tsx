@@ -105,7 +105,7 @@ export const PrivacyPolicy: React.FC = () => (
     <Section title="10. Contact Us">
       <p>If you have questions about this Privacy Policy, contact us at:</p>
       <div className="mt-2 bg-white/5 p-3 rounded-xl">
-        <p className="font-bold text-gray-300">Cave Core Dynamics™</p>
+        <p className="font-bold text-gray-300">Cave Core Dynamics</p>
         <p>3060 Mercer University Dr Ste 110 #951</p>
         <p><a href="mailto:admin@cavecoredynamics.org" className="text-brand-orange hover:underline">admin@cavecoredynamics.org</a></p>
       </div>
@@ -120,7 +120,7 @@ export const TermsOfService: React.FC = () => (
     </div>
 
     <Section title="1. Acceptance of Terms" defaultOpen={true}>
-      <p>By accessing or using ÜrTC ("the App"), you agree to be bound by these Terms of Service. If you do not agree, do not use the App. The App is operated by Cave Core Dynamics™ ("we", "us", "our").</p>
+      <p>By accessing or using ÜrTC ("the App"), you agree to be bound by these Terms of Service. If you do not agree, do not use the App. The App is operated by Cave Core Dynamics ("we", "us", "our").</p>
     </Section>
 
     <Section title="2. Description of Service">
@@ -152,7 +152,7 @@ export const TermsOfService: React.FC = () => (
 
     <Section title="6. Data Sources & Accuracy">
       <ul className="list-disc pl-4 space-y-1">
-        <li>Flight data is provided by FlightAware® AeroAPI and may experience delays.</li>
+        <li>Flight data is provided by FlightAware AeroAPI and may experience delays.</li>
         <li>Weather data is provided by OpenWeatherMap and may not reflect real-time conditions.</li>
         <li>Maps and places data is provided by Google Maps Platform.</li>
         <li>We do not guarantee the accuracy, completeness, or timeliness of any third-party data.</li>
@@ -164,11 +164,11 @@ export const TermsOfService: React.FC = () => (
     </Section>
 
     <Section title="8. Intellectual Property">
-      <p>All content, design, branding, and code in ÜrTC is the intellectual property of Cave Core Dynamics™. You may not copy, modify, distribute, or reverse-engineer the App without written permission. Third-party trademarks (Google Maps, FlightAware, etc.) belong to their respective owners.</p>
+      <p>All content, design, branding, and code in ÜrTC is the intellectual property of Cave Core Dynamics. You may not copy, modify, distribute, or reverse-engineer the App without written permission. Third-party trademarks (Google Maps, FlightAware, etc.) belong to their respective owners.</p>
     </Section>
 
     <Section title="9. Limitation of Liability">
-      <p>TO THE MAXIMUM EXTENT PERMITTED BY LAW, CAVE CORE DYNAMICS™ SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING FROM YOUR USE OF THE APP. Our total liability shall not exceed the amount you paid for the App in the preceding 12 months.</p>
+      <p>TO THE MAXIMUM EXTENT PERMITTED BY LAW, CAVE CORE DYNAMICS SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING FROM YOUR USE OF THE APP. Our total liability shall not exceed the amount you paid for the App in the preceding 12 months.</p>
     </Section>
 
     <Section title="10. Termination">
@@ -181,7 +181,7 @@ export const TermsOfService: React.FC = () => (
 
     <Section title="12. Contact">
       <div className="bg-white/5 p-3 rounded-xl">
-        <p className="font-bold text-gray-300">Cave Core Dynamics™</p>
+        <p className="font-bold text-gray-300">Cave Core Dynamics</p>
         <p>3060 Mercer University Dr Ste 110 #951</p>
         <p><a href="mailto:admin@cavecoredynamics.org" className="text-brand-orange hover:underline">admin@cavecoredynamics.org</a></p>
       </div>

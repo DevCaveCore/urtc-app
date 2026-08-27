@@ -23,15 +23,16 @@ import { useLanguage } from './i18n/context';
 import { AuthGate } from './components/auth/AuthGate';
 
 const SplashScreen: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
+  const [leaving, setLeaving] = useState(false);
   useEffect(() => {
-    const timer = setTimeout(() => {
-      onComplete();
-    }, 2200);
-    return () => clearTimeout(timer);
+    // Let the last tagline land (~1.95s) and breathe, then glide out
+    const exitTimer = setTimeout(() => setLeaving(true), 2200);
+    const doneTimer = setTimeout(() => onComplete(), 2750);
+    return () => { clearTimeout(exitTimer); clearTimeout(doneTimer); };
   }, [onComplete]);
 
   return (
-    <div className="fixed inset-0 z-[100] bg-brand-ink flex flex-col items-center justify-center overflow-hidden">
+    <div className={`fixed inset-0 z-[100] bg-brand-ink flex flex-col items-center justify-center overflow-hidden transition-all duration-[550ms] ease-in-out ${leaving ? 'opacity-0 scale-110 blur-md' : 'opacity-100 scale-100'}`}>
       {/* Deep ambient glow */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-brand-orange/10 rounded-full blur-[120px] animate-pulse" />
@@ -52,17 +53,34 @@ const SplashScreen: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
         </div>
 
         {/* Wordmark */}
-        <div className="text-center space-y-2">
+        <div className="text-center">
           <h1 className="font-display text-7xl font-bold tracking-tight text-white leading-none">
             Ür<span className="gradient-text">TC</span>
           </h1>
-          <p className="text-white/40 text-sm font-medium tracking-[0.3em] uppercase">Travel Evolved</p>
+
+          {/* Taglines take off one after another and the last one lands */}
+          <div className="relative h-7 mt-4 w-[300px] mx-auto overflow-hidden">
+            {[
+              { text: 'Track any flight, live.', delay: '0s', cls: 'phrase-fly' },
+              { text: 'Book it in seconds.', delay: '0.55s', cls: 'phrase-fly' },
+              { text: 'Travel Commerce, with Apollo.', delay: '1.1s', cls: 'phrase-land' },
+            ].map(p => (
+              <p
+                key={p.text}
+                className={`${p.cls} absolute inset-0 flex items-center justify-center whitespace-nowrap text-[13px] font-semibold tracking-[0.16em] uppercase text-white/60`}
+                style={{ animationDelay: p.delay }}
+              >
+                {p.text}
+              </p>
+            ))}
+          </div>
+
+          {/* Contrail under the taglines */}
+          <div className="animate-contrail mx-auto mt-1 h-px w-[220px] bg-gradient-to-r from-transparent via-brand-orange/70 to-transparent" />
         </div>
 
-        {/* Powered by badge */}
-        <div className="px-4 py-1.5 rounded-full border border-white/10 bg-white/5 backdrop-blur-md">
-          <p className="text-[11px] font-semibold text-white/50 tracking-wider uppercase">Powered by Apollo AI · Cave Core Dynamics™</p>
-        </div>
+        {/* Maker mark */}
+        <p className="text-[10px] font-semibold text-white/25 tracking-[0.25em] uppercase">Cave Core Dynamics</p>
       </div>
     </div>
   );
@@ -80,8 +98,15 @@ const AppContent: React.FC = () => {
   const [budgetLimit, setBudgetLimit] = useState(2500);
   const [notes, setNotes] = useState<Note[]>([]);
   const [passes, setPasses] = useState<Pass[]>([]);
-  const [theme, setTheme] = useState<Theme>('dark');
-  const [textSize, setTextSize] = useState<'sm' | 'base' | 'lg'>('base');
+  // Both preferences survive relaunch — they were being saved but never read back
+  const [theme, setTheme] = useState<Theme>(() => {
+    const t = localStorage.getItem('urtc_theme');
+    return t === 'light' || t === 'amoled' || t === 'dark' ? t : 'dark';
+  });
+  const [textSize, setTextSize] = useState<'sm' | 'base' | 'lg'>(() => {
+    const s = localStorage.getItem('urtc_text_size');
+    return s === 'sm' || s === 'lg' ? s : 'base';
+  });
   const [exploreCity, setExploreCity] = useState("Atlanta");
   const [showLive, setShowLive] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -221,8 +246,16 @@ const AppContent: React.FC = () => {
                   
                   if (alert) {
                       setAlertMessage(alert);
+                      // Banner clears itself — it used to stick until tracking stopped
+                      setTimeout(() => setAlertMessage(undefined), 15000);
                   }
-                  setTrackedActivity(updatedFlight);
+                  // Only swap state when something visible changed, otherwise this
+                  // effect tears down and recreates its own interval every 10s.
+                  const changed = updatedFlight.status !== trackedActivity.status
+                      || updatedFlight.gate !== trackedActivity.gate
+                      || updatedFlight.progress !== trackedActivity.progress
+                      || updatedFlight.delayMinutes !== trackedActivity.delayMinutes;
+                  if (changed) setTrackedActivity(updatedFlight);
               }
           } catch (e) {
               console.error("Flight poll failed", e);
@@ -251,18 +284,28 @@ const AppContent: React.FC = () => {
     if (textSize === 'sm') root.style.fontSize = '14px';
     else if (textSize === 'lg') root.style.fontSize = '18px';
     else root.style.fontSize = '16px';
+    localStorage.setItem('urtc_text_size', textSize);
   }, [textSize]);
 
-  // Load Saved Data
+  // Load Saved Data — one corrupt value must never blank the whole app
   useEffect(() => {
-    const savedBudget = localStorage.getItem('urtc_budget');
-    if (savedBudget) setBudgetItems(JSON.parse(savedBudget));
+    const readJson = (key: string): any => {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        localStorage.removeItem(key); // corrupt — drop it and start clean
+        return null;
+      }
+    };
+    const savedBudget = readJson('urtc_budget');
+    if (savedBudget) setBudgetItems(savedBudget);
     const savedLimit = localStorage.getItem('urtc_budget_limit');
-    if (savedLimit) setBudgetLimit(Number(savedLimit));
-    const savedNotes = localStorage.getItem('urtc_notes');
-    if (savedNotes) setNotes(JSON.parse(savedNotes));
-    const savedPasses = localStorage.getItem('urtc_passes');
-    if (savedPasses) setPasses(JSON.parse(savedPasses));
+    if (savedLimit && !isNaN(Number(savedLimit))) setBudgetLimit(Number(savedLimit));
+    const savedNotes = readJson('urtc_notes');
+    if (savedNotes) setNotes(savedNotes);
+    const savedPasses = readJson('urtc_passes');
+    if (savedPasses) setPasses(savedPasses);
   }, []);
 
   useEffect(() => { localStorage.setItem('urtc_budget', JSON.stringify(budgetItems)); }, [budgetItems]);
@@ -313,6 +356,20 @@ const AppContent: React.FC = () => {
     setRunTour(true);
   }, []);
 
+  // Apollo can steer the app: his open_app_tab tool fires this event
+  useEffect(() => {
+    const nav = (e: Event) => {
+      const tab = (e as CustomEvent).detail?.tab;
+      const map: Record<string, Tab> = { today: Tab.Home, home: Tab.Home, flights: Tab.Flights, explore: Tab.Explore, trips: Tab.Itinerary, plans: Tab.Itinerary, about: Tab.About };
+      if (tab && map[tab]) {
+        setShowApolloSheet(false); // get out of the way so they can see it
+        handleTabChange(map[tab]);
+      }
+    };
+    window.addEventListener('urtc-navigate', nav);
+    return () => window.removeEventListener('urtc-navigate', nav);
+  }, [handleTabChange]);
+
   const handlers = useSwipeable({
     onSwipedLeft: (e) => {
       if (Math.abs(e.deltaX) < 80 || Math.abs(e.deltaY) > Math.abs(e.deltaX) * 0.6) return;
@@ -339,15 +396,66 @@ const AppContent: React.FC = () => {
       {showSplash ? (
         <SplashScreen onComplete={() => setShowSplash(false)} />
       ) : (
-        <div className={`min-h-screen ${
+        <div className={`min-h-screen animate-in fade-in slide-in-from-bottom-1 duration-700 ${
           theme === 'amoled' ? 'bg-black' :
-          theme === 'light' ? 'bg-[#F2F4F7]' :
-          'bg-brand-ink'
-        } text-white selection:bg-brand-orange selection:text-white transition-colors duration-500`}>
+          theme === 'light' ? 'bg-[#F2F4F7] text-gray-900' :
+          'bg-brand-ink text-white'
+        } selection:bg-brand-orange selection:text-white transition-colors duration-500`}>
 
           {/* Ambient depth glows removed for performance */}
 
-          <div className="max-w-md sm:max-w-lg md:max-w-2xl lg:max-w-3xl xl:max-w-4xl mx-auto min-h-screen relative">
+          {/* ── Desktop sidebar (≥1024px) — replaces the phone bottom nav ── */}
+          <aside className="hidden lg:flex fixed left-0 top-0 bottom-0 w-[232px] z-40 flex-col gap-1.5 px-3.5 py-6 border-r border-white/[0.07] bg-white/[0.02]">
+            <div className="flex items-center gap-2.5 px-2 pb-4">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-orange to-orange-700 flex items-center justify-center shadow-lg shadow-brand-orange/30">
+                <Plane size={18} className="text-white" />
+              </div>
+              <span className="font-display text-xl font-bold tracking-tight text-white">Ür<span className="text-brand-orange">TC</span></span>
+              <span className="text-[9px] font-black bg-brand-orange/15 text-brand-orange px-1.5 py-0.5 rounded-full">v1.2</span>
+            </div>
+            {[
+              { tab: Tab.Home, icon: <Home size={19} />, label: 'Today' },
+              { tab: Tab.Flights, icon: <Plane size={19} />, label: 'Flights' },
+              { tab: Tab.Explore, icon: <Building2 size={19} />, label: 'Explore' },
+              { tab: Tab.Itinerary, icon: <Notebook size={19} />, label: 'Trips' },
+            ].map(({ tab, icon, label }) => (
+              <button
+                key={`side-${tab}`}
+                onClick={() => handleTabChange(tab)}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl text-sm transition select-none ${
+                  activeTab === tab
+                    ? 'bg-white/[0.06] border border-brand-orange/25 text-brand-orange font-bold'
+                    : 'text-white/55 font-semibold hover:text-white hover:bg-white/[0.04] border border-transparent'
+                }`}
+              >
+                {icon} {label}
+              </button>
+            ))}
+            <div className="flex-1" />
+            <button
+              onClick={() => handleTabChange(Tab.Apollo)}
+              className="rounded-2xl p-3.5 bg-gradient-to-br from-[#FFB800]/15 to-brand-orange/10 border border-[#FFB800]/25 flex items-center gap-2.5 text-left hover:border-[#FFB800]/50 transition"
+            >
+              <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-[#FFB800]/50 shrink-0">
+                <img src="/assets/apollo_pilot.jpg" alt="Apollo" className="w-full h-full object-cover" />
+              </div>
+              <div>
+                <div className="text-[13px] font-extrabold text-white leading-tight">Ask Apollo</div>
+                <div className="text-[10px] text-white/45">Your travel companion</div>
+              </div>
+            </button>
+            <button onClick={() => handleTabChange(Tab.About)} className="flex items-center gap-2.5 px-2 pt-2 text-left group">
+              <div className="w-8 h-8 rounded-full bg-white/[0.08] border border-white/10 flex items-center justify-center text-[13px] font-extrabold text-white shrink-0">
+                {user.username.charAt(0).toUpperCase()}
+              </div>
+              <span className="text-[13px] font-bold text-white flex-1 truncate">{user.username}</span>
+              <span className="text-[9px] font-black text-[#8DE2FF] bg-[#3AB0FF]/15 border border-[#3AB0FF]/30 px-2 py-0.5 rounded-full group-hover:border-[#3AB0FF]/60 transition">
+                {user.tier === UserTier.Dev ? 'DEV' : user.tier === UserTier.Diamond ? 'DIAMOND' : user.tier === UserTier.Professional ? 'PRO' : user.tier === UserTier.Free ? 'SILVER' : 'BRONZE'}
+              </span>
+            </button>
+          </aside>
+
+          <div className="max-w-md sm:max-w-lg md:max-w-2xl lg:max-w-none mx-auto lg:mx-0 lg:pl-[232px] min-h-screen relative">
 
             {/* Flight tracking Dynamic Island */}
             {trackedActivity && (
@@ -428,26 +536,39 @@ const AppContent: React.FC = () => {
             )}
 
             {/* ─── Main Content (lazy-mount: only initialize a tab when first visited, then keep alive) ─── */}
-            <main className="relative z-10 pb-32">
+            {/* No z-index here: it would trap every fixed modal inside this
+                stacking context BELOW the z-40 bottom nav (sheets rendered
+                half-covered and "unscrollable"). Modals manage their own z.
+                Swipe handlers were built but never attached — they only fire
+                on decisively horizontal gestures (see the deltaY guard). */}
+            <main {...handlers} className="relative pb-32 lg:pb-12 lg:max-w-[1180px] lg:mx-auto lg:px-6">
               {locationDenied && (
-                <div className="mx-4 mt-2 mb-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 text-red-500 dark:text-red-400 animate-in slide-in-from-top-4">
-                  <MapPinOff size={20} className="shrink-0 mt-0.5" />
-                  <div className="text-xs leading-relaxed">
-                    <strong className="block font-bold mb-1">Location Services Disabled</strong>
-                    UrTC requires location access to auto-detect your city for live weather and map data. Please enable location permissions in your browser/device settings.
+                <div className="mx-4 mt-2 mb-2 px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-2xl flex items-center gap-2.5 backdrop-blur-sm animate-in slide-in-from-top-4">
+                  <div className="w-7 h-7 rounded-full bg-amber-500/15 border border-amber-500/20 flex items-center justify-center shrink-0">
+                    <MapPinOff size={13} className="text-amber-400" />
                   </div>
+                  <div className="flex-1 text-[11px] leading-snug text-white/60">
+                    <span className="font-bold text-white/80">Location is off</span> — turn it on for live weather and nearby gems.
+                  </div>
+                  <button
+                    onClick={() => setLocationDenied(false)}
+                    className="p-1.5 text-white/30 hover:text-white/70 rounded-lg hover:bg-white/5 transition shrink-0"
+                    title="Dismiss"
+                  >
+                    <X size={13} />
+                  </button>
                 </div>
               )}
-              <div style={{ display: activeTab === Tab.Home ? 'block' : 'none' }} className="px-4 pt-3">
+              <div style={{ display: activeTab === Tab.Home ? 'block' : 'none' }} className={`px-4 pt-3 ${activeTab === Tab.Home ? 'animate-tab-in' : ''}`}>
                 {activeTab === Tab.Home && <HomeView user={user} onNavigate={handleTabChange} onExplore={handleExplore} onStartTour={handleStartTour} budgetItems={budgetItems} budgetLimit={budgetLimit} />}
               </div>
               {mountedTabs.has(Tab.Flights) && (
-                <div className="pt-safe-top" style={{ display: activeTab === Tab.Flights ? 'block' : 'none' }}>
+                <div className={`pt-safe-top ${activeTab === Tab.Flights ? 'animate-tab-in' : ''}`} style={{ display: activeTab === Tab.Flights ? 'block' : 'none' }}>
                   <FlightView user={user} onViewCity={handleViewDestination} onTrackFlight={setTrackedActivity} />
                 </div>
               )}
               {mountedTabs.has(Tab.Explore) && (
-                <div className="pt-safe-top" style={{ display: activeTab === Tab.Explore ? 'block' : 'none' }}>
+                <div className={`pt-safe-top ${activeTab === Tab.Explore ? 'animate-tab-in' : ''}`} style={{ display: activeTab === Tab.Explore ? 'block' : 'none' }}>
                   <CityView onAddToBudget={addToBudget} initialCity={exploreCity} onCityChange={setExploreCity} theme={theme} />
                 </div>
               )}
@@ -457,18 +578,18 @@ const AppContent: React.FC = () => {
                 </div>
               )}
               {mountedTabs.has(Tab.Itinerary) && (
-                <div style={{ display: activeTab === Tab.Itinerary ? 'block' : 'none' }} className="px-4 pt-3">
+                <div style={{ display: activeTab === Tab.Itinerary ? 'block' : 'none' }} className={`px-4 pt-3 ${activeTab === Tab.Itinerary ? 'animate-tab-in' : ''}`}>
                   <ItineraryView user={user} onAskApollo={() => handleTabChange(Tab.Apollo)} />
                 </div>
               )}
               {mountedTabs.has(Tab.About) && (
-                <div style={{ display: activeTab === Tab.About ? 'block' : 'none' }} className="px-4 pt-3">
+                <div style={{ display: activeTab === Tab.About ? 'block' : 'none' }} className={`px-4 pt-3 ${activeTab === Tab.About ? 'animate-tab-in' : ''}`}>
                   <AboutView currentUser={user} onUserUpdate={setUser} textSize={textSize} onTextSizeChange={setTextSize} />
                 </div>
               )}
             </main>
 
-            <div className="fixed bottom-0 left-0 right-0 z-40 pb-safe pb-4 pt-2 px-4 md:px-8 lg:px-16">
+            <div className="fixed bottom-0 left-0 right-0 z-40 pb-safe pb-4 pt-2 px-4 md:px-8 lg:hidden">
               <div className="pill-nav rounded-[28px] px-2 py-2 flex items-center justify-between relative shadow-2xl shadow-black/50 w-full max-w-md sm:max-w-lg md:max-w-2xl mx-auto">
 
                 {/* Apollo FAB (elevated center) */}
@@ -482,7 +603,7 @@ const AppContent: React.FC = () => {
                       showApolloSheet ? 'bg-brand-orange/60 opacity-100' : 'opacity-0'
                     }`} />
                     <div className={`relative w-14 h-14 rounded-full border-[3px] ${
-                      showApolloSheet ? 'border-brand-orange shadow-lg glow-orange' : 'border-brand-orange/40'
+                      showApolloSheet ? 'border-brand-orange shadow-lg glow-orange' : 'border-brand-orange/40 animate-orb-breathe'
                     } overflow-hidden bg-brand-surface transition-all duration-200`}>
                       <img
                         src="/assets/apollo_pilot.jpg"
@@ -513,7 +634,7 @@ const AppContent: React.FC = () => {
                     {activeTab === tab && (
                       <div className="absolute inset-0 bg-brand-orange/10 rounded-2xl pointer-events-none" />
                     )}
-                    <div className="relative">{icon}</div>
+                    <div className={`relative ${activeTab === tab ? 'animate-tab-pop' : ''}`}>{icon}</div>
                     <span className="text-[9px] font-bold uppercase tracking-wide">{label}</span>
                   </button>
                 ))}
@@ -537,7 +658,7 @@ const AppContent: React.FC = () => {
                     {activeTab === tab && (
                       <div className="absolute inset-0 bg-brand-orange/10 rounded-2xl pointer-events-none" />
                     )}
-                    <div className="relative">{icon}</div>
+                    <div className={`relative ${activeTab === tab ? 'animate-tab-pop' : ''}`}>{icon}</div>
                     <span className="text-[9px] font-bold uppercase tracking-wide">{label}</span>
                   </button>
                 ))}
@@ -569,7 +690,9 @@ const AppContent: React.FC = () => {
                       <X size={18} />
                     </button>
                   </div>
-                  <div className="flex-1 overflow-y-auto px-4 pt-2 pb-4">
+                  {/* The chat owns its own scroll — an outer scroller plus the
+                      chat's fixed vh height left a dead band under the composer */}
+                  <div className="flex-1 min-h-0 overflow-hidden px-4 pt-2 pb-4">
                     <ApolloView userTier={user.tier} onBack={() => setShowApolloSheet(false)} />
                   </div>
                 </div>
@@ -588,7 +711,7 @@ const AppContent: React.FC = () => {
                     <div className="bg-brand-orange/20 p-2 rounded-xl"><Shield size={24} className="text-brand-orange" /></div>
                     <div>
                       <h2 className="text-2xl font-black text-white">Terms & Agreements</h2>
-                      <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">ÜrTC — Cave Core Dynamics™</p>
+                      <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">ÜrTC — Cave Core Dynamics</p>
                     </div>
                   </div>
                 </div>
@@ -605,12 +728,12 @@ const AppContent: React.FC = () => {
 
                   <div className="space-y-3">
                     <h3 className="text-white font-bold text-base">3. Third-Party Data & APIs</h3>
-                    <p>Flight data is sourced from <strong className="text-brand-orange">FlightAware AeroAPI</strong>, weather from <strong>OpenWeather</strong>, and maps from <strong>Google Maps Platform</strong>. Data accuracy, availability, and pricing are controlled by these third-party providers and may change at any time without notice. Cave Core Dynamics™ is not responsible for inaccuracies in third-party data.</p>
+                    <p>Flight data is sourced from <strong className="text-brand-orange">FlightAware AeroAPI</strong>, weather from <strong>OpenWeather</strong>, and maps from <strong>Google Maps Platform</strong>. Data accuracy, availability, and pricing are controlled by these third-party providers and may change at any time without notice. Cave Core Dynamics is not responsible for inaccuracies in third-party data.</p>
                   </div>
 
                   <div className="space-y-3">
                     <h3 className="text-white font-bold text-base">4. No Warranty & Limitation of Liability</h3>
-                    <p>The App is provided <strong>"AS IS"</strong> without warranty of any kind. Cave Core Dynamics™, its founders, employees, and affiliates shall not be held liable for any direct, indirect, incidental, or consequential damages arising from your use of the App, including but not limited to missed flights, financial losses, or reliance on AI-generated content.</p>
+                    <p>The App is provided <strong>"AS IS"</strong> without warranty of any kind. Cave Core Dynamics, its founders, employees, and affiliates shall not be held liable for any direct, indirect, incidental, or consequential damages arising from your use of the App, including but not limited to missed flights, financial losses, or reliance on AI-generated content.</p>
                   </div>
 
                   <div className="space-y-3">
@@ -638,7 +761,7 @@ const AppContent: React.FC = () => {
                     <p>Gemini AI (Apollo) can make mistakes. Flight data from APIs may be delayed or inaccurate. Pricing for third-party services and subscriptions may change over time. Always double-check critical travel information.</p>
                   </div>
 
-                  <p className="text-[10px] text-gray-500 pt-2">Last updated: June 2026 — © Cave Core Dynamics™. All rights reserved.</p>
+                  <p className="text-[10px] text-gray-500 pt-2">Last updated: June 2026 — © Cave Core Dynamics. All rights reserved.</p>
                 </div>
                 <div className="p-4 bg-[#151921] border-t border-white/10">
                   <button

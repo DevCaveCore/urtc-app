@@ -7,6 +7,7 @@ import { fetchTrips, createTrip, updateTrip, deleteTrip, addFlightToTrip, delete
 import { getBudgetPlan, generateAiNote, generateTripStory, generateBudgetInsight } from '../services/geminiService';
 import { getLocationSuggestions } from '../services/mockService';
 import { SwipeToDelete } from './SwipeToDelete';
+import { BudgetDashboard, ExpenseGroups, categorize } from './BudgetDashboard';
 
 const PlansTutorialWidget = () => {
     const [step, setStep] = useState(0);
@@ -239,7 +240,7 @@ export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user, onAsk
                                 <p className="text-xs text-gray-600 mt-1">Create a new trip or unarchive an old one.</p>
                             </div>
                         ) : (
-                            <div className="grid gap-4">
+                            <div className="grid gap-4 lg:grid-cols-2">
                                 {activeTrips.map(trip => (
                                     <SwipeToDelete key={trip.id} onDelete={() => handleDeleteTrip(trip.id)}>
                                         {(() => { const timing = tripTiming(trip); const i = activeTrips.indexOf(trip); const spent = (trip.budget_categories || []).reduce((a: number, c: any) => a + (c.planned || 0), 0); return (
@@ -284,7 +285,7 @@ export const ItineraryView: React.FC<PlansViewProps> = React.memo(({ user, onAsk
                                 <p className="text-xs text-gray-600 mt-1">Archive trips you've completed to keep things tidy.</p>
                             </div>
                         ) : (
-                            <div className="grid gap-4">
+                            <div className="grid gap-4 lg:grid-cols-2">
                                 {archivedTrips.map(trip => (
                                     <SwipeToDelete key={trip.id} onDelete={() => handleDeleteTrip(trip.id)}>
                                         <div 
@@ -388,6 +389,14 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro, onAskApollo }: { trip:
         onUpdate();
     };
 
+    const handleEditBudget = async (budgetId: string, label: string, planned: number) => {
+        const updatedBudget = (trip.budget_categories || []).map((b: any) =>
+            b.id === budgetId ? { ...b, label, planned } : b
+        );
+        await updateTrip(trip.id, { budget_categories: updatedBudget });
+        onUpdate();
+    };
+
     const handleDeleteBudget = async (budgetId: string) => {
         const updatedBudget = (trip.budget_categories || []).filter((b: any) => b.id !== budgetId);
         await updateTrip(trip.id, { budget_categories: updatedBudget });
@@ -422,13 +431,24 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro, onAskApollo }: { trip:
     };
 
     const generateICS = (flight: TripFlight) => {
+        // flight_date may be missing, a bare YYYY-MM-DD, or a full ISO
+        // timestamp — the ICS DATE value must always be exactly 8 digits.
+        if (!flight.flight_date) {
+            alert('This flight has no date yet — add one before exporting to your calendar.');
+            return;
+        }
+        const dateOnly = flight.flight_date.split('T')[0].replace(/-/g, '').slice(0, 8);
+        if (!/^\d{8}$/.test(dateOnly)) {
+            alert('This flight has an invalid date — edit it before exporting.');
+            return;
+        }
         // Build basic ICS file
         const icsData = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
             "BEGIN:VEVENT",
             `SUMMARY:Flight ${flight.flight_number} (${flight.airline || 'Airline'})`,
-            `DTSTART;VALUE=DATE:${flight.flight_date.replace(/-/g, '')}`,
+            `DTSTART;VALUE=DATE:${dateOnly}`,
             `DESCRIPTION:Departure: ${flight.departure_airport || 'TBD'}\\nArrival: ${flight.arrival_airport || 'TBD'}`,
             "END:VEVENT",
             "END:VCALENDAR"
@@ -568,7 +588,7 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro, onAskApollo }: { trip:
                         </div>
                     ) : (
                         trip.flights?.map(f => (
-                            <SwipeToDelete key={f.id} onDelete={async () => { await deleteFlightFromTrip(f.id); onUpdate(); }}>
+                            <SwipeToDelete key={f.id} onDelete={async () => { await deleteFlightFromTrip(f.id, trip.id); onUpdate(); }}>
                                 <div className="bg-[#151921] p-5 rounded-3xl border border-white/10 shadow-sm">
                                     <div className="flex justify-between items-start mb-3">
                                         <div>
@@ -600,62 +620,35 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro, onAskApollo }: { trip:
             {/* BUDGET TAB */}
             {subTab === 'budget' && (
                 <div className="space-y-4 px-2">
-                    {(() => {
-                        const limit = trip.budget_limit || 0;
-                        const pct = limit > 0 ? Math.min(100, (totalSpent / limit) * 100) : 0;
-                        const over = limit > 0 && totalSpent > limit;
-                        return (
-                        <div className="bg-[#12151b] p-6 rounded-[28px] border border-white/10 shadow-sm relative overflow-hidden">
-                            <div className={`absolute inset-0 bg-gradient-to-br ${over ? 'from-red-500/15' : 'from-brand-orange/15'} via-transparent to-transparent pointer-events-none`} />
-                            <div className="relative z-10">
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Planned Spend</p>
-                                        <div className="text-4xl font-black text-white font-mono tracking-tight mt-1">${(totalSpent || 0).toLocaleString()}</div>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{over ? 'Over By' : 'Remaining'}</p>
-                                        <div className={`text-xl font-black font-mono mt-1 ${over ? 'text-red-400' : 'text-green-400'}`}>
-                                            ${Math.abs((limit) - totalSpent).toLocaleString()}
-                                        </div>
-                                    </div>
-                                </div>
-                                {limit > 0 ? (
-                                    <div className="mt-4">
-                                        <div className="h-2.5 bg-white/10 rounded-full overflow-hidden">
-                                            <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-gradient-to-r from-red-500 to-red-400' : 'bg-gradient-to-r from-brand-orange/70 to-brand-orange'}`} style={{ width: `${pct}%` }} />
-                                        </div>
-                                        <div className="flex justify-between mt-1.5 text-[10px] font-bold text-gray-500">
-                                            <span>{Math.round(pct)}% of budget</span>
-                                            <span>Limit ${limit.toLocaleString()}</span>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <p className="mt-3 text-[11px] text-gray-500">Set a budget limit below and this becomes a live progress meter.</p>
-                                )}
-                            </div>
-                        </div>
-                        );
-                    })()}
+                    <BudgetDashboard
+                        expenses={(trip.budget_categories || []).map((b: any) => ({ label: b.label || '', planned: b.planned || 0 }))}
+                        limit={trip.budget_limit || 0}
+                        durationDays={trip.duration_days || 0}
+                    />
+                    {(trip.budget_limit || 0) === 0 && (
+                        <p className="text-[11px] text-gray-500 px-2 -mt-2">Set a budget limit below and the ring becomes a live spending gauge with a per-day allowance.</p>
+                    )}
 
                     <div className="bg-[#151921] p-5 rounded-3xl border border-white/10 shadow-sm relative overflow-hidden">
                         <h4 className="font-bold text-sm text-white mb-3">Trip Context <span className="text-[10px] text-gray-500 font-medium normal-case">— helps Apollo give sharper insights</span></h4>
                         <div className="grid grid-cols-2 gap-3 mb-4 relative z-10">
+                            {/* Commit on blur — writing to Firestore per keystroke dropped
+                                characters whenever writes resolved out of order */}
                             <div>
                                 <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block mb-1">Destination</label>
-                                <input type="text" placeholder="e.g. Tokyo" value={trip.destination || ''} onChange={e => updateTrip(trip.id, { destination: e.target.value }).then(onUpdate)} className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-brand-orange outline-none transition" />
+                                <input type="text" placeholder="e.g. Tokyo" key={`dest-${trip.id}`} defaultValue={trip.destination || ''} onBlur={e => { if (e.target.value !== (trip.destination || '')) updateTrip(trip.id, { destination: e.target.value }).then(onUpdate); }} className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-brand-orange outline-none transition" />
                             </div>
                             <div>
                                 <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block mb-1">Duration (Days)</label>
-                                <input type="number" min="1" value={trip.duration_days || ''} onChange={e => updateTrip(trip.id, { duration_days: Number(e.target.value) }).then(onUpdate)} className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-brand-orange outline-none transition" />
+                                <input type="number" min="1" key={`dur-${trip.id}`} defaultValue={trip.duration_days || ''} onBlur={e => { const v = Number(e.target.value) || 0; if (v !== (trip.duration_days || 0)) updateTrip(trip.id, { duration_days: v }).then(onUpdate); }} className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-brand-orange outline-none transition" />
                             </div>
                             <div>
                                 <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold block mb-1">Travelers</label>
-                                <input type="number" min="1" value={trip.travelers_count || ''} onChange={e => updateTrip(trip.id, { travelers_count: Number(e.target.value) }).then(onUpdate)} className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-brand-orange outline-none transition" />
+                                <input type="number" min="1" key={`trav-${trip.id}`} defaultValue={trip.travelers_count || ''} onBlur={e => { const v = Number(e.target.value) || 0; if (v !== (trip.travelers_count || 0)) updateTrip(trip.id, { travelers_count: v }).then(onUpdate); }} className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-brand-orange outline-none transition" />
                             </div>
                             <div>
                                 <label className="text-[10px] text-brand-orange uppercase tracking-widest font-bold block mb-1">Budget Limit ($)</label>
-                                <input type="number" min="0" placeholder="$0" value={trip.budget_limit || ''} onChange={e => updateTrip(trip.id, { budget_limit: Number(e.target.value) }).then(onUpdate)} className="w-full bg-brand-orange/10 border border-brand-orange/30 rounded-xl px-3 py-2 text-sm text-brand-orange font-bold focus:border-brand-orange outline-none transition" />
+                                <input type="number" min="0" placeholder="$0" key={`bl-${trip.id}`} defaultValue={trip.budget_limit || ''} onBlur={e => { const v = Number(e.target.value) || 0; if (v !== (trip.budget_limit || 0)) updateTrip(trip.id, { budget_limit: v }).then(onUpdate); }} className="w-full bg-brand-orange/10 border border-brand-orange/30 rounded-xl px-3 py-2 text-sm text-brand-orange font-bold focus:border-brand-orange outline-none transition" />
                             </div>
                         </div>
 
@@ -683,32 +676,14 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro, onAskApollo }: { trip:
                     </div>
 
                     <div className="space-y-2">
-                        {(trip.budget_categories || []).map((item: any) => (
-                            <SwipeToDelete key={item.id} onDelete={() => handleDeleteBudget(item.id)}>
-                                {(() => {
-                                    const share = totalSpent > 0 ? Math.round(((item.planned || 0) / totalSpent) * 100) : 0;
-                                    const l = (item.label || '').toLowerCase();
-                                    const emoji = /flight|air|plane/.test(l) ? '✈️' : /hotel|stay|airbnb|lodg/.test(l) ? '🏨' : /food|eat|dinner|lunch|sushi|restaurant|coffee/.test(l) ? '🍽️' : /car|uber|lyft|train|transit|gas/.test(l) ? '🚕' : /shop|gift|souvenir/.test(l) ? '🛍️' : /ticket|tour|museum|show|park/.test(l) ? '🎟️' : '💵';
-                                    return (
-                                    <div className="bg-[#14171d] border border-white/5 p-4 rounded-2xl relative overflow-hidden">
-                                        <div className="absolute inset-y-0 left-0 bg-brand-orange/[0.07] pointer-events-none" style={{ width: `${share}%` }} />
-                                        <div className="relative z-10 flex justify-between items-center">
-                                            <span className="font-bold text-sm text-gray-200 flex items-center gap-2.5">
-                                                <span className="text-base">{emoji}</span> {item.label}
-                                                <span className="text-[9px] font-black text-gray-500 bg-white/5 px-1.5 py-0.5 rounded">{share}%</span>
-                                            </span>
-                                            <div className="flex items-center gap-3">
-                                                <span className="font-mono font-bold text-brand-orange">${(item.planned || 0).toLocaleString()}</span>
-                                                <button onClick={() => handleDeleteBudget(item.id)} className="text-gray-600 hover:text-red-400/80 transition z-10">
-                                                    <X size={16} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    );
-                                })()}
-                            </SwipeToDelete>
-                        ))}
+                        <ExpenseGroups
+                            items={(trip.budget_categories || []).map((b: any) => ({ id: b.id, label: b.label || '', planned: b.planned || 0 }))}
+                            onSave={handleEditBudget}
+                            onDelete={handleDeleteBudget}
+                        />
+                        {(trip.budget_categories || []).length > 0 && (
+                            <p className="text-[10px] text-gray-500 px-2">Tap a category to see what's inside · pencil to edit · tell Apollo "add dinner at Nobu, $120" and he'll file it here.</p>
+                        )}
                     </div>
 
                     <div className="mt-6">
@@ -764,7 +739,7 @@ const TripDetailsView = ({ trip, onBack, onUpdate, isPro, onAskApollo }: { trip:
                             <p className="text-sm text-gray-500 mt-1">Go to the Explore tab and tap "Save to Trip" to add places here.</p>
                         </div>
                     ) : (
-                        <div className="grid gap-4">
+                        <div className="grid gap-4 lg:grid-cols-2">
                             {trip.places.map((place: any, idx: number) => (
                                 <div key={idx} className="flex bg-white dark:bg-[#151921] rounded-2xl overflow-hidden border border-gray-200 dark:border-white/10 shadow-sm relative group active:scale-[0.98] transition">
                                     {place.image ? (

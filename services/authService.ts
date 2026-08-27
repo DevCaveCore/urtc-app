@@ -191,8 +191,12 @@ export const getRememberMe = (): boolean => {
 };
 
 export const getActiveUser = (): UserAccount => {
-  const data = localStorage.getItem(STORAGE_KEY_ACTIVE);
-  if (data) return JSON.parse(data);
+  try {
+    const data = localStorage.getItem(STORAGE_KEY_ACTIVE);
+    if (data) return JSON.parse(data);
+  } catch {
+    localStorage.removeItem(STORAGE_KEY_ACTIVE); // corrupt — fall back to guest
+  }
 
   return {
     id: 'guest',

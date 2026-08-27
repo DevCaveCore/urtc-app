@@ -22,6 +22,12 @@ export default defineConfig({
         target: 'https://aeroapi.flightaware.com',
         changeOrigin: true,
       },
+      // Booking calls go through the deployed Firebase function even in dev —
+      // the Duffel key only exists server-side, never on this machine.
+      '/duffel': {
+        target: 'https://urtc-app.web.app',
+        changeOrigin: true,
+      },
     },
   },
 });

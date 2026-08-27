@@ -37,3 +37,14 @@ functions/node_modules
 # Android signing keys — NEVER commit
 *.jks
 *.keystore
+
+# Secrets — never commit env files (a real key leaked from .env once already)
+.env
+.env.*
+!.env.example
+.env 2
+
+# Confidential company documents — governance agreements, IP assignments,
+# NDAs and strategy/financial models. These live in Drive, never in git.
+*.docx
+*.pdf

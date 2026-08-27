@@ -3,13 +3,11 @@ import { Info, Shield, Star, Crown, Lock, CreditCard, Type, User, LogOut, Code, 
 import { UserTier, UserAccount } from '../types';
 import { LoginView } from './auth/LoginView';
 import { RegisterView } from './auth/RegisterView';
-import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import { loadStripe } from '@stripe/stripe-js';
-import { redeemAccessCode, logout, getActiveUser, setStatsForNerds, updateUserTier } from '../services/authService';
+// Payments run through Stripe Payment Links + the Customer Portal — no
+// Stripe.js needed here (loadStripe was downloading it on every visit for nothing).
+import { redeemAccessCode, logout, getActiveUser } from '../services/authService';
 import { useLanguage } from '../i18n/context';
 import { PrivacyPolicy as PrivacyPolicyDoc, TermsOfService as TermsOfServiceDoc } from './LegalDocuments';
-
-const stripePromise = loadStripe('pk_live_51TUeysRqoflFtIgs5AqotIPRZ1Q6sWjxcdtXeEKYhT8Au7rdYJJ8JIaTdmohYZ7028erR55De0nJ2eo3WOXB3wF500XZknvsPh');
 
 interface AboutViewProps {
  currentUser: UserAccount;
@@ -55,13 +53,41 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
     }
  };
 
- const handleCancelSubscription = () => {
-    // Simulate local downgrade (In-App Cancellation)
-    const downgradedUser = { ...currentUser, tier: UserTier.Free };
-    onUserUpdate(downgradedUser);
-    setShowCancelModal(false);
-    setSelectedPlan(null);
-    alert('Your subscription has been successfully cancelled.');
+ const [portalBusy, setPortalBusy] = useState(false);
+ const [portalError, setPortalError] = useState('');
+
+ // Real cancellation: open Stripe's own Customer Portal for this account.
+ // Tier is downgraded by the stripewebhook when the subscription actually
+ // ends — never faked locally, so billing and access can't drift apart.
+ const handleCancelSubscription = async () => {
+    setPortalBusy(true);
+    setPortalError('');
+    try {
+        const { auth } = await import('../services/firebaseClient');
+        const idToken = await auth.currentUser?.getIdToken();
+        if (!idToken) {
+            setPortalError('Sign in with the account you subscribed with, then try again.');
+            return;
+        }
+        const res = await fetch('/stripeportal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-urtc-auth': idToken },
+        });
+        const json = await res.json().catch(() => null);
+        if (res.ok && json?.url) {
+            window.open(json.url, '_blank', 'noopener');
+            setShowCancelModal(false);
+            setSelectedPlan(null);
+        } else if (json?.error === 'no_subscription') {
+            setPortalError('No active subscription is linked to this account.');
+        } else {
+            setPortalError('Could not open the billing portal. Email support@cavecoredynamics.org and we\'ll sort it immediately.');
+        }
+    } catch (e) {
+        setPortalError('Could not open the billing portal. Email support@cavecoredynamics.org and we\'ll sort it immediately.');
+    } finally {
+        setPortalBusy(false);
+    }
  };
 
  // Attach the user's identity to a Stripe Payment Link so the webhook
@@ -100,10 +126,9 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
             return [
                 "Everything in Silver — with zero ads",
                 "Unlimited Apollo AI chat + Live Voice mode",
-                "AI-predicted departure & arrival times",
+                "Real-time push alerts — delays, gate changes, cancellations",
                 "Smart Budgeting — AI builds your trip budget",
                 "AI Smart Notes & your Digital Flight Bag",
-                "Real-time flight alerts (delays, gates, cancellations)",
                 "Shared trip planning for up to 5 people",
                 "Family budget sync",
                 "First access to new features"
@@ -307,7 +332,7 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
                     <div className="space-y-2.5 text-xs text-gray-400">
                       <div className="flex items-start gap-3">
                         <div className="w-1.5 h-1.5 rounded-full bg-brand-orange mt-1.5 shrink-0"></div>
-                        <div><strong className="text-gray-300">Flight Data</strong> — FlightAware® AeroAPI</div>
+                        <div><strong className="text-gray-300">Flight Data</strong> — FlightAware AeroAPI</div>
                       </div>
                       <div className="flex items-start gap-3">
                         <div className="w-1.5 h-1.5 rounded-full bg-brand-blue mt-1.5 shrink-0"></div>
@@ -370,7 +395,7 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
 
                  {/* Copyright Footer */}
                  <div className="text-center text-[10px] text-gray-600 pt-2 pb-4">
-                     <p>© 2026 Cave Core Dynamics™. All rights reserved.</p>
+                     <p>© 2026 Cave Core Dynamics. All rights reserved.</p>
                      <p className="mt-1">Contains AeroAPI data © FlightAware LLC 2026.</p>
                  </div>
              </div>
@@ -412,9 +437,15 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
                         ></textarea>
                     </div>
                 </div>
-                <div className="p-4 bg-white/5 flex gap-3">
-                    <button onClick={() => setShowCancelModal(false)} className="flex-1 py-3 bg-white/10 text-white rounded-xl font-bold text-sm hover:bg-white/20 transition">Keep My Plan</button>
-                    <button onClick={handleCancelSubscription} className="flex-1 py-3 bg-red-500/20 text-red-500 rounded-xl font-bold text-sm hover:bg-red-500 hover:text-white transition">Cancel & Submit</button>
+                <div className="p-4 bg-white/5 space-y-2">
+                    {portalError && <p className="text-[11px] text-red-400 font-bold text-center">{portalError}</p>}
+                    <div className="flex gap-3">
+                        <button onClick={() => setShowCancelModal(false)} className="flex-1 py-3 bg-white/10 text-white rounded-xl font-bold text-sm hover:bg-white/20 transition">Keep My Plan</button>
+                        <button onClick={handleCancelSubscription} disabled={portalBusy} className="flex-1 py-3 bg-red-500/20 text-red-500 rounded-xl font-bold text-sm hover:bg-red-500 hover:text-white transition disabled:opacity-50">
+                            {portalBusy ? 'Opening…' : 'Continue to Billing'}
+                        </button>
+                    </div>
+                    <p className="text-[10px] text-gray-500 text-center">You'll finish cancelling on Stripe's secure billing page. Diamond stays active until the end of what you've already paid for.</p>
                 </div>
             </div>
         </div>
@@ -478,7 +509,7 @@ export const AboutView: React.FC<AboutViewProps> = React.memo(({ currentUser, on
                             {/* Upgrade / Cancel options if they are on a paid tier */}
                             {(selectedPlan === UserTier.Diamond || selectedPlan === UserTier.Professional) && (
                                 <div className="flex gap-2">
-                                    <button onClick={() => {}} className="flex-1 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold transition">Change Plan</button>
+                                    <button onClick={handleCancelSubscription} disabled={portalBusy} className="flex-1 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold transition disabled:opacity-50">{portalBusy ? 'Opening…' : 'Manage Billing'}</button>
                                     <button onClick={() => setShowCancelModal(true)} className="flex-1 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded-lg text-xs font-bold transition">Cancel Plan</button>
                                 </div>
                             )}

@@ -18,8 +18,13 @@ const MOCK_STORAGE_KEY = 'urtc_mock_trips';
 
 // Helper to get local mock trips
 const getMockTrips = (): Trip[] => {
-    const data = localStorage.getItem(MOCK_STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    try {
+        const data = localStorage.getItem(MOCK_STORAGE_KEY);
+        return data ? JSON.parse(data) : [];
+    } catch {
+        localStorage.removeItem(MOCK_STORAGE_KEY); // corrupt — start clean
+        return [];
+    }
 };
 
 // Helper to save local mock trips
@@ -54,7 +59,7 @@ export const fetchTrips = async (userId: string): Promise<Trip[]> => {
     }
 };
 
-export const createTrip = async (userId: string, name: string): Promise<Trip | null> => {
+export const createTrip = async (userId: string, name: string, details?: Partial<Trip>): Promise<Trip | null> => {
     const newTrip: any = {
         user_id: userId,
         name,
@@ -62,7 +67,10 @@ export const createTrip = async (userId: string, name: string): Promise<Trip | n
         budget_categories: [],
         passes: [],
         flights: [],
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        // Optional metadata (dates, destination, budget_limit, travelers…)
+        // so Apollo can save the whole plan, not just a name
+        ...(details || {})
     };
 
     if (userId === 'guest' || userId.startsWith('code-')) {
@@ -162,38 +170,46 @@ export const addFlightToTrip = async (userId: string, tripId: string, flightNumb
     }
 };
 
-export const deleteFlightFromTrip = async (flightId: string): Promise<boolean> => {
-    if (flightId.startsWith('flight-')) {
-        // Mock trips might also have 'flight-' or 'mock-flight-' depending on generation
-        const trips = getMockTrips();
-        let changed = false;
-        for (const trip of trips) {
-            if (trip.flights) {
-                const initLen = trip.flights.length;
-                trip.flights = trip.flights.filter(f => f.id !== flightId);
-                if (trip.flights.length !== initLen) changed = true;
-            }
+export const deleteFlightFromTrip = async (flightId: string, tripId?: string): Promise<boolean> => {
+    // Mock/local trips
+    const trips = getMockTrips();
+    let changed = false;
+    for (const trip of trips) {
+        if (trip.flights) {
+            const initLen = trip.flights.length;
+            trip.flights = trip.flights.filter(f => f.id !== flightId);
+            if (trip.flights.length !== initLen) changed = true;
         }
-        if (changed) saveMockTrips(trips);
-        // We'll also try Firestore just in case
     }
+    if (changed) {
+        saveMockTrips(trips);
+        return true;
+    }
+    if (tripId?.startsWith('mock-trip-')) return false;
 
     try {
-        // For Firestore, we have to find the trip that contains this flight.
-        // This is inefficient but works for now since we denormalized flights into the trip document.
+        // When the caller knows the trip (it always does from the trip view),
+        // update that one document instead of scanning the whole collection.
+        if (tripId) {
+            const tripRef = doc(db, 'trips', tripId);
+            const snap = await getDoc(tripRef);
+            if (!snap.exists()) return false;
+            const flights = (snap.data().flights || []).filter((f: any) => f.id !== flightId);
+            await updateDoc(tripRef, { flights });
+            return true;
+        }
+        // Legacy path (no tripId): scan — kept only for old call sites.
         const snapshot = await getDocs(collection(db, 'trips'));
-        let found = false;
         for (const tripDoc of snapshot.docs) {
             const data = tripDoc.data();
             const flights = data.flights || [];
             const newFlights = flights.filter((f: any) => f.id !== flightId);
             if (flights.length !== newFlights.length) {
                 await updateDoc(doc(db, 'trips', tripDoc.id), { flights: newFlights });
-                found = true;
-                break;
+                return true;
             }
         }
-        return found;
+        return false;
     } catch (error) {
         console.error('Error deleting flight:', error);
         return false;

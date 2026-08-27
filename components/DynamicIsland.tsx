@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plane } from 'lucide-react';
+import { Plane, X } from 'lucide-react';
 import { Flight } from '../types';
 
 interface DynamicIslandProps {
@@ -39,6 +39,13 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({ activity, alertMes
                     <div>
                         <h4 className="font-bold text-sm">{activity.airline} {activity.flightNumber}</h4>
                         <p className="text-xs text-gray-400">To {activity.arrivalAirport} • {activity.gate ? `Gate ${activity.gate}` : 'Gate TBD'}</p>
+                        {/* The island could never be dismissed — onClose existed but was unwired */}
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onClose(); }}
+                            className="mt-1.5 text-[10px] font-bold text-white/40 hover:text-white flex items-center gap-1 transition"
+                        >
+                            <X size={10} /> Stop tracking
+                        </button>
                     </div>
                 </div>
                 <div className="text-right">
