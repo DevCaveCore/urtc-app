@@ -5,7 +5,7 @@ Assets in this folder:
 - `promo-card2.png` — Smart Booking ("Tell Apollo where. He does the rest.")
 - `promo-card3.png` — Live tracking ("Every flight. Live. In 3D.")
 - `shot-*.png` — raw phone screenshots (reuse anywhere)
-- `promo-cards.html` — the card template; edit copy and re-render with `node promo-cards.mjs`
+- `promo-cards.html` — the card template; edit copy and re-render with `node marketing/scripts/promo-cards.mjs`
 
 ## Tweet thread (copy-paste)
 

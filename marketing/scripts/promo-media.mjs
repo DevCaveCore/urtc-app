@@ -14,7 +14,12 @@ import os from 'os';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 
-const ROOT = 'C:/Users/justi/iCloudDrive/Desktop/urtc-app/marketing/social';
+import { fileURLToPath } from "url";
+// Resolve paths relative to this script rather than the shell cwd. The old
+// hardcoded C:/Users/justi/... path broke the moment anyone ran it on a Mac.
+const HERE = path.dirname(fileURLToPath(import.meta.url)).split(path.sep).join("/");
+const SOCIAL = path.posix.join(HERE, "..", "social");
+const ROOT = SOCIAL;
 const CARDS = path.posix.join(ROOT, 'cards');
 const VIDEO = path.posix.join(ROOT, 'video');
 fs.mkdirSync(CARDS, { recursive: true });

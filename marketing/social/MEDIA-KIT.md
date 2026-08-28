@@ -5,10 +5,10 @@ Everything here is generated from the real app or the real brand system. Nothing
 Regenerate any of it with the dev server running on `:5173`:
 
 ```bash
-node promo-media.mjs          # everything
-node promo-media.mjs cards    # just the cards
-node promo-media.mjs collage  # just the collage video
-node promo-media.mjs clips    # just the app recordings
+node marketing/scripts/promo-media.mjs          # everything
+node marketing/scripts/promo-media.mjs cards    # just the cards
+node marketing/scripts/promo-media.mjs collage  # just the collage video
+node marketing/scripts/promo-media.mjs clips    # just the app recordings
 ```
 
 Requires **ffmpeg** on PATH (installed via `winget install Gyan.FFmpeg`).

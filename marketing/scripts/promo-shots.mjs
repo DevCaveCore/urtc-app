@@ -3,7 +3,12 @@ import puppeteer from 'puppeteer';
 import path from 'path';
 import fs from 'fs';
 
-const OUT = 'C:/Users/justi/iCloudDrive/Desktop/urtc-app/marketing/social';
+import { fileURLToPath } from "url";
+// Resolve paths relative to this script rather than the shell cwd. The old
+// hardcoded C:/Users/justi/... path broke the moment anyone ran it on a Mac.
+const HERE = path.dirname(fileURLToPath(import.meta.url)).split(path.sep).join("/");
+const SOCIAL = path.posix.join(HERE, "..", "social");
+const OUT = SOCIAL;
 fs.mkdirSync(OUT, { recursive: true });
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
