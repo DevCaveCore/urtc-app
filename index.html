@@ -6,7 +6,12 @@
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover" />
   <title>ÜrTC - Travel Companion</title>
-  <meta name="description" content="ÜrTC by Cave Core Dynamics — Your AI-powered travel companion. Track flights, explore cities, plan budgets, and get help from Apollo AI. Travel Evolved." />
+  <!-- Own every plain-ASCII spelling: people type "urtc", "ur tc", "your travel companion" -->
+  <meta name="description" content="ÜrTC (UrTC — Your Travel Companion) by Cave Core Dynamics. Your AI-powered travel companion: track flights live in 3D, book flights with Apollo AI, explore cities, and plan smart trip budgets. Travel Evolved." />
+  <meta name="keywords" content="UrTC, urtc, ur tc, your travel companion, ÜrTC, flight tracker, AI travel app, Apollo AI, book flights, trip planner, travel budget" />
+  <meta property="og:title" content="ÜrTC — Your AI Travel Companion" />
+  <meta property="og:description" content="The AI planners have no live data. The trackers have no brain. ÜrTC has both — his name is Apollo." />
+  <meta property="og:url" content="https://urtc-app.web.app" />
   <meta name="theme-color" content="#08090C" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -281,14 +286,80 @@
       animation: shimmer 1.8s linear infinite;
     }
 
-    /* ─── Smooth active press ─── */
+    /* ─── Smooth active press — springy overshoot on release ─── */
     .press {
-      transition: transform 0.12s cubic-bezier(0.16,1,0.3,1);
+      transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
       cursor: pointer;
+      will-change: transform;
     }
-    .press:active { transform: scale(0.96); }
+    .press:active {
+      transform: scale(0.95);
+      transition-duration: 0.08s;
+      transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    /* Cards get a softer, deeper press than buttons */
+    .press-card:active { transform: scale(0.98); }
+
+    /* Tab content entrance — re-triggers each time the class is applied on switch */
+    @keyframes tab-in {
+      from { opacity: 0; transform: translateY(14px) scale(0.992); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    /* fill-mode `backwards`, never `both`: a transform that persists after the
+       animation makes this element a containing block for `position: fixed`
+       children, which anchors every modal inside the tab instead of the
+       viewport (you'd have to scroll to find your own dialog). */
+    .animate-tab-in { animation: tab-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+
+    /* Nav icon pop when a tab becomes active */
+    @keyframes tab-pop {
+      0% { transform: scale(1); }
+      45% { transform: scale(1.28) rotate(-4deg); }
+      100% { transform: scale(1); }
+    }
+    .animate-tab-pop { animation: tab-pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+    /* ─── Splash: taglines that fly through like departures board flips ─── */
+    @keyframes phrase-fly {
+      0%   { opacity: 0; transform: translateX(-58px) scale(0.94); filter: blur(7px); }
+      20%  { opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
+      70%  { opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
+      100% { opacity: 0; transform: translateX(58px) scale(0.94); filter: blur(7px); }
+    }
+    /* The last line lands and stays — that's the one they should remember */
+    @keyframes phrase-land {
+      0%   { opacity: 0; transform: translateX(-58px) scale(0.94); filter: blur(7px); }
+      55%  { opacity: 1; transform: translateX(0) scale(1.02); filter: blur(0); }
+      100% { opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
+    }
+    .phrase-fly  { animation: phrase-fly 0.92s cubic-bezier(0.22, 1, 0.36, 1) both; }
+    .phrase-land { animation: phrase-land 0.85s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+    /* A hairline contrail the phrases ride along */
+    @keyframes contrail {
+      0%   { transform: scaleX(0); opacity: 0; }
+      30%  { opacity: 1; }
+      100% { transform: scaleX(1); opacity: 0.45; }
+    }
+    .animate-contrail { animation: contrail 2.1s cubic-bezier(0.22, 1, 0.36, 1) both; transform-origin: left center; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .phrase-fly, .phrase-land, .animate-contrail { animation: none !important; }
+      .phrase-fly { opacity: 0 !important; }
+      .phrase-land { opacity: 1 !important; }
+    }
+
+    /* Apollo orb idle breathing — alive even when nobody's touching it */
+    @keyframes orb-breathe {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,92,26,0.0); }
+      50% { transform: scale(1.05); box-shadow: 0 0 22px 2px rgba(255,92,26,0.35); }
+    }
+    .animate-orb-breathe { animation: orb-breathe 3.6s ease-in-out infinite; border-radius: 9999px; }
+    @media (prefers-reduced-motion: reduce) {
+      .animate-tab-in, .animate-tab-pop, .animate-orb-breathe { animation: none !important; }
+    }
 
     /* ─── Eliminate tap delay on all interactive elements ─── */
     button, a, [role="button"] {

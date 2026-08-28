@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import { Plane, Clock, AlertTriangle, Loader2, X, ArrowRight, ArrowLeftRight, ExternalLink, MapPin, Calendar, Search, Radar, Globe, CheckCircle, Navigation, Gauge, Hash, LayoutGrid, PlusCircle, Info, Bell, Lock, Share2 } from 'lucide-react';
 import { Flight, FlightStatus, BudgetItem, UserTier, FlightSchedule, AirportConditions, UserAccount, Trip, ForesightPrediction, FlightRoute } from '../types';
 import { fetchRealFlights, fetchFlightTrack, fetchSchedules, fetchAirportConditions, fetchRandomFlight, fetchFleetFlights, fetchForesightFlight, fetchForesightPosition, fetchFlightPosition, fetchFlightRoute, fetchFlightMapImage, searchFlightsInArea, searchFlightsAdvanced, searchFlightCount, fetchAirportInfo, fetchAirportFlightCounts, fetchAirportForecast, fetchNearbyAirports, fetchNearbyAirportsByLocation, fetchRouteStats, fetchGlobalDelays, fetchOperatorInfo, fetchOperatorFlightCounts, fetchOperatorEnrouteFlights, fetchOperatorScheduledFlights, fetchHistoricalFlight, fetchHistoricalTrack, fetchHistoricalMapImage, fetchLastFlightByTailNumber, fetchAircraftOwner, fetchAircraftType, fetchDisruptionCounts, fetchFutureSchedules, fetchAlerts, createAlert, fetchAlert, updateAlert, deleteAlert, fetchAlertEndpoint, setAlertEndpoint, deleteAlertEndpoint, fetchAeroApiUsage } from '../services/apiService';
@@ -7,6 +8,9 @@ import { getAirportSuggestions, getAirportCoords, getAirlineSuggestions, resolve
 import { getStatsForNerds, hasDiamondAccess, trialDaysLeft } from '../services/authService';
 import { CalendarPicker } from './CalendarPicker';
 import { FlightAlertsModal } from './FlightAlertsModal';
+import { AirlineLogo } from './AirlineLogo';
+import { BookingView } from './BookingView';
+import { SaveToTripSheet } from './SaveToTripSheet';
 
 // Common airline name/code mappings (IATA + names -> ICAO)
 const AIRLINE_MAP: Record<string, string> = {
@@ -67,6 +71,7 @@ const isKnownAirport = (code: string): boolean => {
 export type SmartSearchResult =
     | { type: 'empty' }
     | { type: 'route'; origin: string; dest: string }
+    | { type: 'unresolved'; origin: string; dest: string }
     | { type: 'airport'; code: string; altFleet?: string }
     | { type: 'fleet'; opCode: string; altAirport?: string }
     | { type: 'tail'; tail: string }
@@ -77,12 +82,19 @@ const parseSmartSearch = (input: string): SmartSearchResult => {
     const cleaned = input.trim().toUpperCase();
     if (!cleaned) return { type: 'empty' };
 
-    // Route (e.g. ATL JFK, ATL-JFK, ATL TO JFK, KATL TO KJFK)
-    const routeMatch = cleaned.match(/^([A-Z]{3,4})\s*(?:TO|->)\s*([A-Z]{3,4})$/)
-        || cleaned.match(/^([A-Z]{3,4})\s*-\s*([A-Z]{3,4})$/)
-        || cleaned.match(/^([A-Z]{3,4})\s+([A-Z]{3,4})$/);
+    // Route — accepts codes AND full city names on either side:
+    // "ATL JFK", "ATL-JFK", "ATL TO JFK", "Atlanta to Miami", "Atlanta → Miami"
+    const routeMatch = cleaned.match(/^(.{2,})\s+(?:TO|->|→|–|—)\s+(.{2,})$/)   // explicit separator, spaced
+        || cleaned.match(/^([A-Z]{3,4})\s*(?:TO|->|→)\s*([A-Z]{3,4})$/)          // codes, separator, no spaces
+        || cleaned.match(/^([A-Z]{3,4})\s*-\s*([A-Z]{3,4})$/)                    // ATL-JFK
+        || cleaned.match(/^([A-Z]{3,4})\s+([A-Z]{3,4})$/);                       // ATL JFK
     if (routeMatch && !AIRLINE_MAP[cleaned]) {
-        return { type: 'route', origin: routeMatch[1], dest: routeMatch[2] };
+        // Turn whatever they typed into airport codes — a city name is a
+        // perfectly reasonable thing to type and used to silently fail.
+        const o = resolveAirportCode(routeMatch[1].trim());
+        const d = resolveAirportCode(routeMatch[2].trim());
+        if (o && d) return { type: 'route', origin: o, dest: d };
+        return { type: 'unresolved', origin: routeMatch[1].trim(), dest: routeMatch[2].trim() };
     }
 
     // Tail Number (N-number or international registration like C-FABC, G-ABCD)
@@ -105,6 +117,12 @@ const parseSmartSearch = (input: string): SmartSearchResult => {
 
     // Airline name or IATA code without a number ("DELTA", "DL") -> fleet
     if (AIRLINE_MAP[cleaned]) return { type: 'fleet', opCode: AIRLINE_MAP[cleaned] };
+
+    // A plain city name ("Atlanta", "Los Angeles") is an airport board
+    if (!/\d/.test(cleaned)) {
+        const cityCode = resolveAirportCode(cleaned);
+        if (cityCode) return { type: 'airport', code: cityCode };
+    }
 
     // Otherwise, assume Flight Number
     return { type: 'flight', flight: parseFlightNumber(cleaned) };
@@ -181,31 +199,8 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
     const [isSavingToTrip, setIsSavingToTrip] = useState<Flight | null>(null);
     const [isFetchingTrips, setIsFetchingTrips] = useState(false);
 
-    const handleOpenSaveDialog = async (flight: Flight) => {
+    const handleOpenSaveDialog = (flight: Flight) => {
         setIsSavingToTrip(flight);
-        setIsFetchingTrips(true);
-        const userTrips = await fetchTrips(user.id);
-        setTrips(userTrips);
-        setIsFetchingTrips(false);
-    };
-
-    const handleSaveToTrip = async (tripId: string) => {
-        if (!isSavingToTrip) return;
-        const success = await addFlightToTrip(
-            user.id,
-            tripId,
-            isSavingToTrip.flightNumber,
-            isSavingToTrip.departureTime || '',
-            isSavingToTrip.airline,
-            isSavingToTrip.departureAirport,
-            isSavingToTrip.arrivalAirport
-        );
-        if (success) {
-            setIsSavingToTrip(null);
-            alert('Saved successfully!');
-        } else {
-            alert('Failed to save flight. Please try again.');
-        }
     };
 
     const [flights, setFlights] = useState<Flight[]>([]);
@@ -246,6 +241,8 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
     const isPro = hasDiamondAccess(user);
     const trialDays = trialDaysLeft(user);
     const [showAlertsModal, setShowAlertsModal] = useState(false);
+    // Track = live flight data; Book = the Smart Booking Model (Apollo commerce)
+    const [flightsMode, setFlightsMode] = useState<'track' | 'book'>('track');
 
     useEffect(() => {
         setIsStatsNerd(getStatsForNerds());
@@ -272,9 +269,25 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
         } catch (e) { /* storage full — non-critical */ }
     }, [selectedFlight]);
 
+    // Enrich the concierge memory with Foresight predictions once they load,
+    // so Today's flight card and Apollo can talk about AI-predicted times.
+    useEffect(() => {
+        if (!selectedFlight || !foresightData) return;
+        try {
+            const raw = localStorage.getItem('urtc_last_flight_context');
+            if (!raw) return;
+            const fc = JSON.parse(raw);
+            if (fc.flight !== selectedFlight.flightNumber) return;
+            fc.predicted_departure = foresightData.predicted_out || null;
+            fc.predicted_arrival = foresightData.predicted_in || foresightData.predicted_on || null;
+            localStorage.setItem('urtc_last_flight_context', JSON.stringify(fc));
+        } catch (e) { /* non-critical */ }
+    }, [foresightData, selectedFlight]);
+
     const mapRef = useRef<HTMLDivElement>(null);
     const googleMapRef = useRef<any>(null);
     const flightPathRef = useRef<any>(null);
+    const flightGlowRef = useRef<any>(null); // soft halo under the route line
     const planeMarkerRef = useRef<any>(null);
     const fleetMarkersRef = useRef<any[]>([]);
     const lastFitFlightIdRef = useRef<string | null>(null);
@@ -434,18 +447,17 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
             // whenever the existing instance isn't attached to this container.
             if (!googleMapRef.current || googleMapRef.current.getDiv() !== container || activeRendererRef.current !== '2d') {
                 container.innerHTML = '';
+                // Photorealistic satellite imagery with labels — the 2D fallback
+                // should look like Earth, not a stylized diagram. (The 3D view
+                // is already photoreal; this brings the flat map up to match.)
                 googleMapRef.current = new window.google.maps.Map(container, {
                     center: { lat: 30, lng: -40 },
                     zoom: 3,
                     disableDefaultUI: true,
                     gestureHandling: 'greedy',
-                    backgroundColor: '#17263c',
-                    styles: [
-                        { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-                        { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
-                        { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-                        { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
-                    ]
+                    backgroundColor: '#0b141d',
+                    mapTypeId: 'hybrid',
+                    tilt: 0,
                 });
                 flightPathRef.current = null;
                 planeMarkerRef.current = null;
@@ -454,12 +466,22 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
             }
 
             if (flightPathRef.current) flightPathRef.current.setMap(null);
+            if (flightGlowRef.current) flightGlowRef.current.setMap(null);
+            // Halo under the route so the line reads over satellite imagery
+            flightGlowRef.current = new window.google.maps.Polyline({
+                path,
+                geodesic: true,
+                strokeColor: '#FF6B35',
+                strokeOpacity: 0.3,
+                strokeWeight: 9,
+                map: googleMapRef.current
+            });
             flightPathRef.current = new window.google.maps.Polyline({
                 path,
                 geodesic: true,
                 strokeColor: '#FF6B35',
                 strokeOpacity: 1.0,
-                strokeWeight: 3,
+                strokeWeight: 3.5,
                 map: googleMapRef.current
             });
 
@@ -698,6 +720,11 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
 
             if (parsed.type === 'empty') {
                 setSearchError('Type a flight number, airport code, route (ATL to JFK), airline, or tail number.');
+            } else if (parsed.type === 'unresolved') {
+                // We understood the shape ("X to Y") but not one of the places —
+                // say WHICH one instead of returning nothing.
+                const bad = !resolveAirportCode(parsed.origin) ? parsed.origin : parsed.dest;
+                setSearchError(`We couldn't match "${bad}" to an airport. Try its 3-letter code (Atlanta is ATL, Miami is MIA) or pick from the suggestions.`);
             } else if (parsed.type === 'flight') {
                 setSearchMode('flight');
                 const results = await fetchRealFlights(parsed.flight, effDate, airlineFilter);
@@ -903,7 +930,12 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
 
     const shareFlight = (f: Flight, e: React.MouseEvent) => {
         e.stopPropagation();
-        const text = `✈️ ${f.flightNumber}: ${f.departureAirport} → ${f.arrivalAirport} — ${getDisplayStatus(f)}. Tracking live on ÜrTC`;
+        let text = `✈️ ${f.flightNumber}: ${f.departureAirport} → ${f.arrivalAirport} — ${getDisplayStatus(f)}.`;
+        // Diamond flex: share the AI-predicted arrival when we have it
+        if (isPro && selectedFlight === f && foresightData?.predicted_in) {
+            text += ` AI predicts arrival ${formatTime(foresightData.predicted_in)}.`;
+        }
+        text += ' Tracking live on ÜrTC';
         const url = 'https://urtc-app.web.app';
         if (navigator.share) {
             navigator.share({ title: `Flight ${f.flightNumber}`, text, url }).catch(() => {});
@@ -913,39 +945,68 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
         }
     };
 
-    const openGoogleFlights = (f: Flight, e: React.MouseEvent) => {
+    // Internal booking: prefill the Book tab with this flight's route and switch over.
+    const openBooking = (f: Flight, e: React.MouseEvent) => {
         e.stopPropagation();
-        const query = `Flights from ${f.departureAirport} to ${f.arrivalAirport}`;
-        window.open(`https://www.google.com/travel/flights?q=${encodeURIComponent(query)}`, '_blank');
+        try {
+            const depDate = f.departureTime ? f.departureTime.split('T')[0] : undefined;
+            localStorage.setItem('urtc_booking_prefill', JSON.stringify({
+                origin: f.departureAirport,
+                destination: f.arrivalAirport,
+                departureDate: depDate,
+                autoSearch: !!depDate,
+            }));
+        } catch { /* storage full — the form just starts blank */ }
+        setFlightsMode('book');
     };
 
     return (
         <div className="space-y-5 pb-24">
             <div className="flex justify-between items-center mb-2 px-1">
-                <h2 className="text-xl font-bold">Flight Data & Tracking</h2>
+                <h2 className="text-xl font-bold">Flights</h2>
                 {trialDays > 0 && user.tier !== UserTier.Diamond && user.tier !== UserTier.Professional && user.tier !== UserTier.Dev && (
                     <span className="text-[10px] font-black bg-gradient-to-r from-[#8DE2FF] to-[#3AB0FF] text-white px-2.5 py-1 rounded-full shadow">💎 Diamond trial · {trialDays}d left</span>
                 )}
-                <button 
+                <button
                     onClick={() => isPro ? setShowAlertsModal(true) : setShowUpgradeNudge('Real-time flight alerts')}
                     className="bg-brand-blue/10 text-brand-blue hover:bg-brand-blue hover:text-white px-3 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1"
                 >
                     <Bell size={14} /> Alerts {!isPro && <Lock size={10} className="opacity-70" />}
                 </button>
             </div>
-            
+
+            {/* Track ↔ Book mode switch */}
+            <div className="flex gap-1.5 p-1 bg-gray-100 dark:bg-white/5 rounded-2xl border border-gray-200 dark:border-white/10">
+                <button
+                    onClick={() => setFlightsMode('track')}
+                    className={`flex-1 py-2.5 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 ${flightsMode === 'track' ? 'bg-white dark:bg-brand-surface shadow text-brand-orange' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                >
+                    <Radar size={14} /> Track Flights
+                </button>
+                <button
+                    onClick={() => setFlightsMode('book')}
+                    className={`flex-1 py-2.5 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 ${flightsMode === 'book' ? 'bg-white dark:bg-brand-surface shadow text-brand-orange' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                >
+                    ✨ Book Travel <span className="text-[8px] font-black bg-brand-orange/15 text-brand-orange px-1.5 py-0.5 rounded-full uppercase">New</span>
+                </button>
+            </div>
+
+            {flightsMode === 'book' && <BookingView user={user} />}
+
+            <div className={flightsMode === 'book' ? 'hidden' : 'space-y-5'}>
+
             {/* Unified Smart Search — one box for flights, airports, routes, airlines & tails */}
             <div id="tour-flight-search" className="bg-white dark:bg-brand-surface/90 backdrop-blur-xl p-4 rounded-2xl border border-gray-200 dark:border-white/10 shadow-xl transition-all duration-300 focus-within:shadow-brand-orange/20 focus-within:border-brand-orange/30">
                 <form onSubmit={(e) => { e.preventDefault(); performSearch(); }} className="flex flex-col gap-3">
                     <div className="flex flex-col sm:flex-row gap-3">
                         <div className="flex-1 relative min-w-[200px]">
                             <label className="absolute left-4 top-2 text-[10px] font-bold uppercase tracking-wider text-brand-orange">
-                                Search Anything
+                                Start Searching
                             </label>
                             <input
                                 id="flightSearchInput"
                                 type="text"
-                                placeholder={'Try "Delta 1182", "JFK", "ATL to LAX" or "N123AB"'}
+                                placeholder="Start typing here…"
                                 className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-orange/50 focus:border-brand-orange transition-all font-bold text-base pt-7"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
@@ -1011,19 +1072,19 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                         <div className="flex-1 relative">
                             <label className="absolute left-4 top-2 text-[9px] font-bold uppercase tracking-wider text-gray-500">Airline Filter</label>
                             <select
-                                className="w-full h-full bg-gray-50/50 dark:bg-white/5 border border-gray-200/50 dark:border-white/5 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-blue/50 focus:border-brand-blue transition-all font-bold text-sm pt-7 appearance-none cursor-pointer"
+                                className="w-full h-full bg-gray-50/50 dark:bg-white/5 border border-gray-200/50 dark:border-white/5 rounded-xl py-3 pl-4 pr-3 text-gray-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-brand-blue/50 focus:border-brand-blue transition-all font-bold text-sm pt-7 appearance-none cursor-pointer"
                                 value={airlineFilter}
                                 onChange={(e) => setAirlineFilter(e.target.value)}
                             >
-                                <option value="ALL">All Airlines</option>
-                                <option value="DAL">Delta Air Lines</option>
-                                <option value="AAL">American Airlines</option>
-                                <option value="UAL">United Airlines</option>
-                                <option value="SWA">Southwest Airlines</option>
-                                <option value="JBU">JetBlue Airways</option>
-                                <option value="ASA">Alaska Airlines</option>
-                                <option value="FFT">Frontier Airlines</option>
-                                <option value="HAL">Hawaiian Airlines</option>
+                                <option value="ALL" className="bg-white text-gray-900 dark:bg-[#151921] dark:text-white">All Airlines</option>
+                                <option value="DAL" className="bg-white text-gray-900 dark:bg-[#151921] dark:text-white">Delta Air Lines</option>
+                                <option value="AAL" className="bg-white text-gray-900 dark:bg-[#151921] dark:text-white">American Airlines</option>
+                                <option value="UAL" className="bg-white text-gray-900 dark:bg-[#151921] dark:text-white">United Airlines</option>
+                                <option value="SWA" className="bg-white text-gray-900 dark:bg-[#151921] dark:text-white">Southwest Airlines</option>
+                                <option value="JBU" className="bg-white text-gray-900 dark:bg-[#151921] dark:text-white">JetBlue Airways</option>
+                                <option value="ASA" className="bg-white text-gray-900 dark:bg-[#151921] dark:text-white">Alaska Airlines</option>
+                                <option value="FFT" className="bg-white text-gray-900 dark:bg-[#151921] dark:text-white">Frontier Airlines</option>
+                                <option value="HAL" className="bg-white text-gray-900 dark:bg-[#151921] dark:text-white">Hawaiian Airlines</option>
                             </select>
                         </div>
                     </div>
@@ -1031,7 +1092,7 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
 
                 {/* Helpful tip */}
                 <p className="mt-3 text-[11px] text-center text-gray-500 dark:text-white/30">
-                    One search does it all: flight number ("Delta 1182") • airport board ("JFK") • route ("ATL to LAX") • airline fleet ("DAL") • tail number ("N123AB")
+                    One search does it all: flight number ("Delta 1182") • airport or city ("JFK", "Atlanta") • route ("Atlanta to Miami") • airline fleet ("DAL") • tail number ("N123AB")
                 </p>
             </div>
 
@@ -1097,18 +1158,25 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                     </div>
                 )}
 
-                {/* Airport Conditions Banner */}
-                {airportInfo && (
-                    <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 flex items-center justify-between">
+                {/* Airport Conditions Banner — red only when there ARE delays.
+                    An alarming banner for "Delay Index 0/5, partly cloudy"
+                    teaches users to ignore the real warnings. */}
+                {airportInfo && (() => {
+                    const severe = (airportInfo.delayIndex || 0) >= 2;
+                    return (
+                    <div className={`rounded-2xl p-4 flex items-center justify-between border ${severe ? 'bg-red-500/10 border-red-500/20' : 'bg-white dark:bg-brand-surface border-gray-200 dark:border-white/10'}`}>
                         <div>
-                            <h4 className="font-bold text-red-500 flex items-center gap-2"><AlertTriangle size={16}/> {airportInfo.airportCode} Conditions</h4>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Delay Index: {airportInfo.delayIndex}/5 • {airportInfo.weather} • {airportInfo.temp}°F</p>
+                            <h4 className={`font-bold flex items-center gap-2 ${severe ? 'text-red-500' : 'text-gray-900 dark:text-white'}`}>
+                                {severe ? <AlertTriangle size={16}/> : <CheckCircle size={16} className="text-emerald-500"/>} {airportInfo.airportCode} Conditions
+                            </h4>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{severe ? `Delays running ${airportInfo.delayIndex}/5` : 'Running smoothly'} • {airportInfo.weather} • {airportInfo.temp}°F</p>
                         </div>
-                        <button onClick={openAirportIntelligence} className="bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-600 transition flex items-center gap-1">
+                        <button onClick={openAirportIntelligence} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${severe ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-brand-blue/10 text-brand-blue hover:bg-brand-blue hover:text-white'}`}>
                             <Info size={14}/> Intelligence
                         </button>
                     </div>
-                )}
+                    );
+                })()}
                 
                 {/* Airport Intelligence Modal */}
                 {showAirportModal && airportFullInfo && (
@@ -1183,9 +1251,7 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                     <div className="bg-gradient-to-r from-brand-blue/10 to-brand-orange/10 border border-brand-blue/20 rounded-2xl p-6 mb-4 relative overflow-hidden">
                         <div className="relative z-10 flex flex-col md:flex-row gap-6 items-center md:items-start justify-between">
                             <div className="flex items-center gap-4">
-                                <div className="bg-white dark:bg-white/10 w-16 h-16 rounded-xl flex items-center justify-center shadow-lg border border-gray-200 dark:border-white/20">
-                                    <Globe className="text-brand-blue" size={32} />
-                                </div>
+                                <AirlineLogo name={operatorInfo.name} icao={operatorInfo.icao} size={64} className="!rounded-xl shadow-lg" />
                                 <div>
                                     <h3 className="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-2">
                                         {operatorInfo.name} <span className="text-sm bg-brand-blue/20 text-brand-blue px-2 py-0.5 rounded uppercase">{operatorInfo.icao}</span>
@@ -1224,7 +1290,10 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                 {viewMode === 'schedule' && schedules.length > 0 && schedules.map((sched, i) => (
                     <div key={i} className="w-full text-left bg-white dark:bg-brand-surface border border-gray-200 dark:border-white/10 rounded-2xl overflow-hidden p-5 shadow-sm">
                         <div className="flex justify-between items-center mb-4">
-                            <div className="text-sm font-bold">{sched.airline} <span className="text-gray-500 ml-2">{sched.ident}</span></div>
+                            <div className="flex items-center gap-2.5">
+                                <AirlineLogo name={sched.airline} ident={sched.ident} icao={sched.airline} size={30} />
+                                <div className="text-sm font-bold">{sched.airline} <span className="text-gray-500 ml-2">{sched.ident}</span></div>
+                            </div>
                             <div className="text-xs font-mono bg-gray-100 dark:bg-white/5 px-2 py-1 rounded">{sched.aircraft || 'Unknown Aircraft'}</div>
                         </div>
                         <div className="flex items-center justify-between">
@@ -1258,10 +1327,13 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                 
                 {/* Live Flight Cards */}
                 {(viewMode === 'live' || searchMode === 'flight') && flights.map((flight, i) => (
-                    <div
+                    <motion.div
                         key={flight.id + '-' + i}
+                        initial={{ opacity: 0, y: 24, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ type: 'spring', stiffness: 300, damping: 28, delay: Math.min(i * 0.05, 0.35) }}
                         onClick={() => setSelectedFlight(flight === selectedFlight ? null : flight)}
-                        className={`w-full text-left bg-white dark:bg-brand-surface border border-gray-200 dark:border-white/10 rounded-2xl overflow-hidden hover:border-brand-orange/40 transition-all duration-300 shadow-lg hover:shadow-xl group relative cursor-pointer ${selectedFlight === flight ? 'ring-2 ring-brand-orange' : ''}`}
+                        className={`w-full text-left bg-white dark:bg-brand-surface border border-gray-200 dark:border-white/10 rounded-2xl overflow-hidden hover:border-brand-orange/40 transition-all duration-300 shadow-lg hover:shadow-xl group relative cursor-pointer press press-card ${selectedFlight === flight ? 'ring-2 ring-brand-orange' : ''}`}
                     >
                         {/* Map Overlay for Selected Flight */}
                         {selectedFlight === flight && (
@@ -1285,9 +1357,7 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                         <div className="p-5 relative z-10">
                             <div className="flex justify-between items-start mb-5">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center border border-gray-200 dark:border-white/10 group-hover:border-brand-orange/20 transition">
-                                        <Plane size={18} className="text-gray-500 dark:text-gray-300 group-hover:text-brand-orange transition-colors" />
-                                    </div>
+                                    <AirlineLogo name={flight.airline} ident={flight.ident || flight.flightNumber} size={40} className="group-hover:scale-105 transition-transform" />
                                     <div>
                                         <div className="text-sm font-bold text-gray-900 dark:text-white">{flight.airline}</div>
                                         <div className="text-xs text-gray-500 dark:text-gray-400 font-mono font-medium">{flight.flightNumber}{flight.aircraft ? ` • ${flight.aircraft}` : ''}</div>
@@ -1320,16 +1390,21 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                                         <Clock size={10} /> {formatDuration(flight.durationMinutes)}
                                     </div>
                                     <div className="w-full h-[3px] bg-gray-200 dark:bg-white/10 rounded-full relative overflow-visible">
-                                        <div
-                                            className="absolute top-0 left-0 h-full bg-gradient-to-r from-brand-orange/50 to-brand-orange shadow-[0_0_10px_rgba(255,107,53,0.5)] transition-all duration-1000 ease-linear rounded-full"
-                                            style={{ width: `${flight.progress}%` }}
+                                        <motion.div
+                                            className="absolute top-0 left-0 h-full bg-gradient-to-r from-brand-orange/50 to-brand-orange shadow-[0_0_10px_rgba(255,107,53,0.5)] rounded-full"
+                                            initial={{ width: 0 }}
+                                            animate={{ width: `${flight.progress}%` }}
+                                            transition={{ type: 'spring', stiffness: 55, damping: 20, delay: 0.15 }}
                                         />
-                                        <div
-                                            className="absolute top-1/2 -mt-2 w-4 h-4 bg-white dark:bg-brand-surface rounded-full border-2 border-brand-orange shadow-md transition-all duration-1000 ease-linear flex items-center justify-center z-10"
-                                            style={{ left: `${flight.progress}%`, transform: 'translate(-50%, -50%)' }}
+                                        <motion.div
+                                            className="absolute top-1/2 -mt-2 w-4 h-4 bg-white dark:bg-brand-surface rounded-full border-2 border-brand-orange shadow-md flex items-center justify-center z-10"
+                                            style={{ transform: 'translate(-50%, -50%)' }}
+                                            initial={{ left: '0%' }}
+                                            animate={{ left: `${flight.progress}%` }}
+                                            transition={{ type: 'spring', stiffness: 55, damping: 20, delay: 0.15 }}
                                         >
                                             <div className="w-1.5 h-1.5 bg-brand-orange rounded-full"></div>
-                                        </div>
+                                        </motion.div>
                                     </div>
                                 </div>
 
@@ -1356,12 +1431,12 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                                 <span className="text-[10px] font-black text-brand-orange whitespace-nowrap ml-2">GET ALERTS →</span>
                             </button>
                         ) : null; })()}
-                        <div className="bg-gray-50 dark:bg-white/5 px-5 py-3 flex justify-between items-center border-t border-gray-200 dark:border-white/5">
-                            <div className="flex gap-4 text-xs font-bold text-gray-500 dark:text-gray-300">
-                                <span className="flex items-center gap-1"><MapPin size={10} /> {flight.airline} • {flight.aircraft || 'Aircraft TBD'}</span>
-                                <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(flight.departureTime)}</span>
+                        <div className="bg-gray-50 dark:bg-white/5 px-5 py-3 flex flex-wrap justify-between items-center gap-2 border-t border-gray-200 dark:border-white/5">
+                            <div className="flex gap-3 text-xs font-bold text-gray-500 dark:text-gray-300 min-w-0">
+                                <span className="flex items-center gap-1 truncate"><MapPin size={10} className="shrink-0" /> {flight.aircraft || 'Aircraft TBD'}</span>
+                                <span className="flex items-center gap-1 shrink-0"><Calendar size={10} /> {formatDate(flight.departureTime)}</span>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-wrap">
                                 <button onClick={(e) => shareFlight(flight, e)} title="Share this flight" className="text-gray-500 dark:text-gray-300 font-bold text-xs flex items-center gap-1 bg-gray-100 dark:bg-white/5 px-2 py-1 rounded-md border border-gray-200 dark:border-white/10 hover:border-brand-orange/40 hover:text-brand-orange transition">
                                     <Share2 size={10} /> Share
                                 </button>
@@ -1373,10 +1448,10 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                                     Save to Trip <PlusCircle size={10} />
                                 </button>
                                 <button
-                                    onClick={(e) => openGoogleFlights(flight, e)}
+                                    onClick={(e) => openBooking(flight, e)}
                                     className="text-brand-blue font-bold text-xs flex items-center gap-1 hover:underline bg-blue-100 dark:bg-blue-500/10 px-2 py-1 rounded-md border border-blue-200 dark:border-blue-500/20"
                                 >
-                                    View Price <ExternalLink size={10} />
+                                    Book This Route <ArrowRight size={10} />
                                 </button>
                             </div>
                         </div>
@@ -1430,7 +1505,7 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                         {selectedFlight === flight && foresightData && isPro && (
                             <div className="bg-gradient-to-r from-brand-orange/5 to-brand-blue/5 p-4 border-t border-gray-200 dark:border-white/10">
                                 <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1">
-                                    <Radar size={12} className="text-brand-orange" /> Foresight™ AI Predictions
+                                    <Radar size={12} className="text-brand-orange" /> Apollo AI Predictions
                                 </h4>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                                     <div>
@@ -1491,12 +1566,12 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                                 API: AeroAPI | Ident: {flight.ident} | Progress: {flight.progress.toFixed(1)}% | Gate: {flight.gate || 'N/A'} | Duration: {flight.durationMinutes || 'N/A'}min
                             </div>
                         )}
-                    </div>
+                    </motion.div>
                 ))}
             </div>
 
-            {/* ── Ad Space Placeholder (Silver & Dev Only) ── */}
-            {(user.tier === UserTier.Free || user.tier === UserTier.Dev) && (
+            {/* ── Ad Space Placeholder (Silver & Dev Only; hidden in store builds until real ads exist) ── */}
+            {(user.tier === UserTier.Free || user.tier === UserTier.Dev) && !(typeof (window as any).Capacitor !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.()) && (
                 <div className="mt-4 mb-2 animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both border border-dashed border-white/20 bg-white/5 rounded-2xl p-4 flex flex-col items-center justify-center min-h-[100px] relative overflow-hidden text-center mx-2">
                     <div className="text-white/40 text-[10px] font-mono tracking-widest uppercase mb-1">Advertisement Space</div>
                     <p className="text-white/60 text-xs font-medium">Unskippable 15s Video Ad goes here</p>
@@ -1510,51 +1585,30 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
             )}
 
             <div className="text-center py-4 text-[10px] text-gray-500 uppercase tracking-widest">
-                Flight data provided by FlightAware®
+                Flight data provided by FlightAware
             </div>
 
-            {/* Save to Trip Modal */}
-            {isSavingToTrip && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white dark:bg-[#151921] rounded-3xl w-full max-w-sm p-6 shadow-2xl border border-gray-200 dark:border-white/10 animate-in zoom-in-95">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="font-bold text-lg dark:text-white flex items-center gap-2">
-                                <Plane size={20} className="text-brand-orange" /> Save Flight
-                            </h3>
-                            <button onClick={() => setIsSavingToTrip(null)} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 rounded-full transition">
-                                <X size={20} />
-                            </button>
-                        </div>
-                        
-                        <div className="bg-gray-50 dark:bg-black/30 rounded-xl p-3 mb-6 border border-gray-200 dark:border-white/5 text-sm font-medium dark:text-gray-300">
-                            {isSavingToTrip.airline} {isSavingToTrip.flightNumber}
-                        </div>
-
-                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Select a Trip</h4>
-                        
-                        {isFetchingTrips ? (
-                            <div className="py-8 flex justify-center"><Loader2 className="animate-spin text-brand-orange" size={24} /></div>
-                        ) : trips.length === 0 ? (
-                            <div className="text-center py-6 text-sm text-gray-500">
-                                You don't have any trips yet. Create one in the Plans tab!
-                            </div>
-                        ) : (
-                            <div className="space-y-2 max-h-60 overflow-y-auto">
-                                {trips.map(trip => (
-                                    <button
-                                        key={trip.id}
-                                        onClick={() => handleSaveToTrip(trip.id)}
-                                        className="w-full text-left p-3 rounded-xl border border-gray-200 dark:border-white/10 hover:border-brand-orange/50 hover:bg-brand-orange/5 transition group flex justify-between items-center"
-                                    >
-                                        <span className="font-bold text-gray-900 dark:text-white">{trip.name}</span>
-                                        <PlusCircle size={16} className="text-gray-400 group-hover:text-brand-orange transition-colors" />
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
+            {/* Save flight to a trip — creates one inline if they have none */}
+            <SaveToTripSheet
+                itemLabel={isSavingToTrip ? `${isSavingToTrip.airline} ${isSavingToTrip.flightNumber}` : null}
+                kind="flight"
+                userId={user.id}
+                suggestedTripName={isSavingToTrip ? `${isSavingToTrip.departureAirport} → ${isSavingToTrip.arrivalAirport} Trip` : undefined}
+                onClose={() => setIsSavingToTrip(null)}
+                onPick={async (trip) => {
+                    if (!isSavingToTrip) return;
+                    await addFlightToTrip(
+                        user.id,
+                        trip.id,
+                        isSavingToTrip.flightNumber,
+                        isSavingToTrip.departureTime || '',
+                        isSavingToTrip.airline,
+                        isSavingToTrip.departureAirport,
+                        isSavingToTrip.arrivalAirport
+                    );
+                    try { window.dispatchEvent(new CustomEvent('urtc-trips-changed')); } catch { /* ignore */ }
+                }}
+            />
 
             {/* Calendar Picker Modal */}
             {showCalendar && (
@@ -1590,7 +1644,9 @@ export const FlightView: React.FC<FlightViewProps> = React.memo(({ user, onViewC
                 </div>
             )}
 
-            <FlightAlertsModal isOpen={showAlertsModal} onClose={() => setShowAlertsModal(false)} />
+            </div>
+
+            <FlightAlertsModal isOpen={showAlertsModal} onClose={() => setShowAlertsModal(false)} user={user} prefillIdent={selectedFlight?.ident} />
         </div>
     );
 });

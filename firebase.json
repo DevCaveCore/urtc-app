@@ -18,6 +18,18 @@
         "function": "aeroapi"
       },
       {
+        "source": "/aeroalerts",
+        "function": "aeroalerts"
+      },
+      {
+        "source": "/duffel/**",
+        "function": "duffel"
+      },
+      {
+        "source": "/stripeportal",
+        "function": "stripeportal"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

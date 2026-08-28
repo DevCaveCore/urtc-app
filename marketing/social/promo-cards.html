@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;600;800&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; font-family: 'Inter', sans-serif; }
+  .card {
+    width: 1600px; height: 900px; position: relative; overflow: hidden;
+    background: #08090C; display: flex; align-items: center; padding: 0 110px;
+  }
+  .glow-o { position: absolute; width: 900px; height: 900px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,92,26,0.22) 0%, transparent 65%);
+    top: -300px; right: -200px; }
+  .glow-b { position: absolute; width: 800px; height: 800px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(46,134,255,0.16) 0%, transparent 65%);
+    bottom: -350px; left: -150px; }
+  .copy { position: relative; z-index: 2; width: 640px; }
+  .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 42px; }
+  .brand .mark { width: 54px; height: 54px; border-radius: 16px;
+    background: linear-gradient(135deg, #FF5C1A, #c2410c); display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 8px 30px rgba(255,92,26,0.45); font-size: 26px; }
+  .brand .name { font-family: 'Space Grotesk'; font-weight: 700; font-size: 34px; color: #fff; letter-spacing: -0.5px; }
+  .brand .name span { color: #FF5C1A; }
+  h1 { font-family: 'Space Grotesk'; font-weight: 700; font-size: 74px; line-height: 1.04;
+    color: #fff; letter-spacing: -2.5px; margin-bottom: 28px; }
+  h1 em { font-style: normal; background: linear-gradient(90deg, #FF5C1A, #FF8A50);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { font-size: 27px; line-height: 1.45; color: rgba(255,255,255,0.62); font-weight: 400; max-width: 560px; }
+  .sub b { color: #fff; font-weight: 600; }
+  .chips { display: flex; gap: 12px; margin-top: 40px; flex-wrap: wrap; }
+  .chip { padding: 12px 22px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.85); font-size: 19px; font-weight: 600; }
+  .chip.hot { background: rgba(255,92,26,0.14); border-color: rgba(255,92,26,0.4); color: #FF8A50; }
+  .phones { position: absolute; right: 40px; top: 50%; transform: translateY(-50%); z-index: 1;
+    display: flex; align-items: center; }
+  .phone { border-radius: 54px; border: 10px solid #1a1e28; overflow: hidden;
+    box-shadow: 0 40px 90px rgba(0,0,0,0.75), 0 0 0 2px rgba(255,255,255,0.06);
+    background: #08090C; }
+  .phone img { display: block; width: 100%; }
+  .phone.main { width: 375px; transform: rotate(3deg); z-index: 2; }
+  .phone.back { width: 330px; transform: rotate(-6deg) translateX(60px) translateY(-20px); opacity: 0.92; }
+  .foot { position: absolute; bottom: 38px; left: 112px; font-size: 18px; color: rgba(255,255,255,0.35); z-index: 2; }
+</style>
+</head>
+<body>
+
+<div class="card" id="card1">
+  <div class="glow-o"></div><div class="glow-b"></div>
+  <div class="copy">
+    <div class="brand"><div class="mark">✈️</div><div class="name">Ür<span>TC</span></div></div>
+    <h1>Your AI travel companion is <em>here</em>.</h1>
+    <p class="sub">The AI planners have no live data. The trackers have no brain. <b>ÜrTC has both</b> — and his name is Apollo. 🐾</p>
+    <div class="chips">
+      <div class="chip hot">✦ Apollo AI</div>
+      <div class="chip">Live flight tracking</div>
+      <div class="chip">Smart booking</div>
+      <div class="chip">Trip budgets</div>
+    </div>
+  </div>
+  <div class="phones">
+    <div class="phone back"><img src="shot-today.png"></div>
+    <div class="phone main"><img src="shot-flight-card.png"></div>
+  </div>
+  <div class="foot">urtc-app.web.app</div>
+</div>
+
+<div class="card" id="card2">
+  <div class="glow-o"></div><div class="glow-b"></div>
+  <div class="copy">
+    <div class="brand"><div class="mark">✈️</div><div class="name">Ür<span>TC</span></div></div>
+    <h1>Tell Apollo where. <em>He does the rest.</em></h1>
+    <p class="sub">"Get me to LA next weekend, under $1,000." Apollo searches <b>live airline fares</b>, ranks every option by price, time and comfort — and books it. No tabs. No spreadsheets.</p>
+    <div class="chips">
+      <div class="chip hot">✦ Book with Apollo</div>
+      <div class="chip">Real fares, ranked</div>
+      <div class="chip">One-tap checkout</div>
+    </div>
+  </div>
+  <div class="phones">
+    <div class="phone back"><img src="shot-apollo.png"></div>
+    <div class="phone main"><img src="shot-book.png"></div>
+  </div>
+  <div class="foot">urtc-app.web.app</div>
+</div>
+
+<div class="card" id="card3">
+  <div class="glow-o"></div><div class="glow-b"></div>
+  <div class="copy">
+    <div class="brand"><div class="mark">✈️</div><div class="name">Ür<span>TC</span></div></div>
+    <h1>Every flight. Live. <em>In 3D.</em></h1>
+    <p class="sub">Gates, baggage claim, delays and <b>AI-predicted landing times</b> — on a living 3D Earth, before the airport screens catch up.</p>
+    <div class="chips">
+      <div class="chip hot">✦ 3D Earth view</div>
+      <div class="chip">Passenger-grade statuses</div>
+      <div class="chip">Delay alerts</div>
+    </div>
+  </div>
+  <div class="phones">
+    <div class="phone back"><img src="shot-flight.png"></div>
+    <div class="phone main"><img src="shot-flight-card.png"></div>
+  </div>
+  <div class="foot">urtc-app.web.app</div>
+</div>
+
+</body>
+</html>

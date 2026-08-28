@@ -19,12 +19,18 @@ export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onB
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
 
-  // Concierge chips on Today prefill the composer
+  // Concierge chips on Today prefill the composer — but never clobber
+  // something the user is mid-typing.
   useEffect(() => {
     const check = () => {
       try {
         const p = localStorage.getItem('urtc_apollo_prefill');
-        if (p) { setInput(p); localStorage.removeItem('urtc_apollo_prefill'); }
+        if (!p) return;
+        setInput(prev => {
+          if (prev.trim()) return prev; // user is typing — leave the prefill for later
+          localStorage.removeItem('urtc_apollo_prefill');
+          return p;
+        });
       } catch { /* ignore */ }
     };
     check();
@@ -174,21 +180,77 @@ export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onB
     } else { setPlayingAudioId(null); }
   };
 
+  // Bold text that names a place in the app becomes a REAL button — it was
+  // styled orange like a link but did nothing when tapped.
+  const TAB_WORDS: Record<string, string> = {
+    notes: 'trips', budget: 'trips', trips: 'trips', plans: 'trips', itinerary: 'trips',
+    flights: 'flights', 'flight tracking': 'flights', 'book travel': 'flights', booking: 'flights',
+    explore: 'explore', today: 'today', home: 'today', about: 'about', subscriptions: 'about',
+  };
+
+  const goToTab = (tab: string) => {
+    try { window.dispatchEvent(new CustomEvent('urtc-navigate', { detail: { tab } })); } catch { /* ignore */ }
+  };
+
+  // Markdown-lite: **bold**, "- " bullets, "1." numbered lines — enough for
+  // Apollo to answer "make that bullet points" without a full renderer.
+  const formatInline = (text: string, keyBase: string) =>
+    text.split(/(\*\*.*?\*\*)/g).map((part, index) => {
+      const key = `${keyBase}-${index}`;
+      if (part.startsWith('**') && part.endsWith('**')) {
+        const inner = part.slice(2, -2);
+        const tab = TAB_WORDS[inner.trim().toLowerCase().replace(/\s+tab$/, '')];
+        if (tab) {
+          return (
+            <button
+              key={key}
+              onClick={() => goToTab(tab)}
+              className="font-bold text-brand-orange underline decoration-brand-orange/40 underline-offset-2 hover:decoration-brand-orange transition inline"
+            >
+              {inner}
+            </button>
+          );
+        }
+        // Not a destination — bold, but white, so it never fakes a link
+        return <strong key={key} className="font-bold text-white">{inner}</strong>;
+      }
+      return <span key={key}>{part}</span>;
+    });
+
   const formatMessage = (text: string) => {
-    return text.split(/(\*\*.*?\*\*)/g).map((part, index) =>
-      (part.startsWith('**') && part.endsWith('**')) ? <strong key={index} className="font-bold text-brand-orange">{part.slice(2, -2)}</strong> : <span key={index}>{part}</span>
-    );
+    return text.split('\n').map((line, li) => {
+      const bullet = line.match(/^\s*[-•]\s+(.*)$/);
+      const numbered = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
+      if (bullet) {
+        return (
+          <div key={li} className="flex gap-2 pl-1 my-0.5">
+            <span className="text-brand-orange shrink-0 leading-relaxed">•</span>
+            <span className="flex-1">{formatInline(bullet[1], `l${li}`)}</span>
+          </div>
+        );
+      }
+      if (numbered) {
+        return (
+          <div key={li} className="flex gap-2 pl-1 my-0.5">
+            <span className="text-brand-orange font-bold shrink-0 leading-relaxed">{numbered[1]}.</span>
+            <span className="flex-1">{formatInline(numbered[2], `l${li}`)}</span>
+          </div>
+        );
+      }
+      if (line.trim() === '') return <div key={li} className="h-2" />;
+      return <div key={li}>{formatInline(line, `l${li}`)}</div>;
+    });
   };
 
   const handleSend = async (textOverride?: string) => {
     const textToSend = textOverride || input;
     if (!textToSend.trim() || isThinking) return;
 
-    if (!textOverride && limitReached && !hasDiamondAccess(user)) return;
+    // Quick chips count against the daily limit too — they used to be a
+    // free side door past the 15-message cap.
+    if (limitReached && !hasDiamondAccess(user)) return;
+    incrementCount();
 
-    if (!textOverride) {
-      incrementCount();
-    }
     const userMsg: ChatMessage = { id: Date.now().toString(), text: textToSend, sender: 'user', timestamp: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
@@ -199,15 +261,27 @@ export const ApolloView: React.FC<ApolloViewProps> = React.memo(({ userTier, onB
     const responseId = (Date.now() + 1).toString();
     setMessages(prev => [...prev, { id: responseId, text: "", sender: 'apollo', timestamp: new Date() }]);
 
-    await streamApolloResponse(userMsg.text, history, (chunk) => {
-      fullResponse += chunk;
-      setMessages(prev => prev.map(m => m.id === responseId ? { ...m, text: fullResponse } : m));
-    });
-    setIsThinking(false);
+    try {
+      await streamApolloResponse(userMsg.text, history, (chunk) => {
+        fullResponse += chunk;
+        setMessages(prev => prev.map(m => m.id === responseId ? { ...m, text: fullResponse } : m));
+      });
+      if (!fullResponse) {
+        setMessages(prev => prev.map(m => m.id === responseId ? { ...m, text: "Woof… that one got away from me. Ask again in a few seconds?" } : m));
+      }
+    } catch (e) {
+      // A failed stream must never freeze the input forever
+      setMessages(prev => prev.map(m => m.id === responseId ? { ...m, text: "Woof… my connection hiccuped. Give it another try." } : m));
+    } finally {
+      setIsThinking(false);
+    }
   };
 
+  // Stop Apollo's voice when the sheet closes — it used to keep talking
+  useEffect(() => () => { audioRef.current?.pause(); }, []);
+
   return (
-    <div className="flex flex-col h-[calc(100vh-180px)]">
+    <div className="flex flex-col h-full min-h-0">
       {/* Header / Brand Area */}
       <div className="flex items-center justify-between px-2 pb-4 border-b border-white/5">
         <div className="flex items-center gap-3">

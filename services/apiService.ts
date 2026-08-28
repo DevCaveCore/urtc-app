@@ -53,7 +53,8 @@ const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 3)
   let lastError: Error | null = null;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const response = await fetch(url, options);
+      // A hung upstream must not hang the UI forever
+      const response = await fetch(url, { signal: AbortSignal.timeout(25000), ...options });
       if (response.ok) return response;
       // Don't retry 4xx client errors (bad request, not found, etc.)
       if (response.status >= 400 && response.status < 500) return response;
@@ -87,22 +88,25 @@ const fetchWeatherCore = async (locationQuery: string): Promise<Weather> => {
 
   if (forecastResponse.ok) {
       const forecastData = await forecastResponse.json();
+      // A truncated/error-shaped 200 must not crash the whole Explore tab
+      const list: any[] = Array.isArray(forecastData?.list) ? forecastData.list : [];
       // Parse hourly (3-hour intervals)
-      hourly = forecastData.list.slice(0, 8).map((item: any) => ({
+      hourly = list.slice(0, 8).map((item: any) => ({
           time: new Date(item.dt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          temp: Math.round(item.main.temp),
-          condition: item.weather[0].main,
-          icon: item.weather[0].icon
+          temp: Math.round(item?.main?.temp ?? 0),
+          condition: item?.weather?.[0]?.main ?? 'Clear',
+          icon: item?.weather?.[0]?.icon
       }));
 
       // Parse daily (naive approach: group by day)
       const daysMap: any = {};
-      forecastData.list.forEach((item: any) => {
+      list.forEach((item: any) => {
           const date = new Date(item.dt * 1000).toLocaleDateString();
+          const cond = item?.weather?.[0]?.main ?? 'Clear';
           if (!daysMap[date]) daysMap[date] = { minTemp: 1000, maxTemp: -1000, conditions: {} };
-          daysMap[date].minTemp = Math.min(daysMap[date].minTemp, item.main.temp_min);
-          daysMap[date].maxTemp = Math.max(daysMap[date].maxTemp, item.main.temp_max);
-          daysMap[date].conditions[item.weather[0].main] = (daysMap[date].conditions[item.weather[0].main] || 0) + 1;
+          daysMap[date].minTemp = Math.min(daysMap[date].minTemp, item?.main?.temp_min ?? 1000);
+          daysMap[date].maxTemp = Math.max(daysMap[date].maxTemp, item?.main?.temp_max ?? -1000);
+          daysMap[date].conditions[cond] = (daysMap[date].conditions[cond] || 0) + 1;
       });
       daily = Object.keys(daysMap).slice(0, 5).map(date => {
           const day = daysMap[date];
@@ -117,12 +121,12 @@ const fetchWeatherCore = async (locationQuery: string): Promise<Weather> => {
   }
 
   return {
-    city: data.name,
-    temp: Math.round(data.main.temp),
-    feelsLike: Math.round(data.main.feels_like),
-    condition: data.weather[0].main,
-    humidity: data.main.humidity,
-    wind: Math.round(data.wind.speed),
+    city: data?.name ?? '',
+    temp: Math.round(data?.main?.temp ?? 0),
+    feelsLike: Math.round(data?.main?.feels_like ?? data?.main?.temp ?? 0),
+    condition: data?.weather?.[0]?.main ?? 'Clear',
+    humidity: data?.main?.humidity ?? 0,
+    wind: Math.round(data?.wind?.speed ?? 0),
     hourly,
     daily
   };
@@ -184,9 +188,10 @@ export const fetchRealFlights = async (query: string, flightDate?: string, airli
         const toApiTime = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
         dateParams = `?start=${toApiTime(localStart)}&end=${toApiTime(localEnd)}`;
 
-        const flightTime = new Date(flightDate).getTime();
+        // Reuse the LOCAL-midnight timestamp — re-parsing "YYYY-MM-DD" with
+        // new Date() reads it as UTC and shifts the historical cutoff a day.
         const tenDaysAgo = Date.now() - (10 * 24 * 60 * 60 * 1000);
-        if (flightTime < tenDaysAgo) {
+        if (localStart.getTime() < tenDaysAgo) {
             isHistorical = true;
         }
     }
@@ -473,13 +478,15 @@ export const fetchSchedules = async (origin?: string, dest?: string, flightDate?
     let isHistorical = false;
     let dateParams = "";
     if (flightDate) {
-        const start = `${flightDate}T00:00:00Z`;
-        const end = `${flightDate}T23:59:59Z`;
-        dateParams = `?start=${start}&end=${end}`;
+        // LOCAL day window, matching fetchRealFlights — the old hard-coded
+        // UTC window dropped evening flights for users west of Greenwich.
+        const localStart = new Date(`${flightDate}T00:00:00`);
+        const localEnd = new Date(localStart.getTime() + 24 * 60 * 60 * 1000);
+        const toApiTime = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+        dateParams = `?start=${toApiTime(localStart)}&end=${toApiTime(localEnd)}`;
 
-        const flightTime = new Date(flightDate).getTime();
         const tenDaysAgo = Date.now() - (10 * 24 * 60 * 60 * 1000);
-        if (flightTime < tenDaysAgo) {
+        if (localStart.getTime() < tenDaysAgo) {
             isHistorical = true;
         }
     }

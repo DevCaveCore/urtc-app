@@ -1,12 +1,6 @@
 {
-  "rewrites": [
-    {
-      "source": "/aeroapi/(.*)",
-      "destination": "https://aeroapi.flightaware.com/aeroapi/$1"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": false
+  }
 }

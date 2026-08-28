@@ -9,6 +9,9 @@ import { collection, query, where, getDocs, setDoc, deleteDoc, doc } from 'fireb
 import { SwipeToDelete } from './SwipeToDelete';
 import { fetchTrips, updateTrip } from '../services/tripService';
 import { Trip } from '../types';
+import { PlaceDetailSheet } from './PlaceDetailSheet';
+import { SaveToTripSheet } from './SaveToTripSheet';
+import { generatePlaceInsight } from '../services/geminiService';
 
 interface CityViewProps {
     onAddToBudget: (item: BudgetItem) => void;
@@ -65,6 +68,11 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
     const [showCitySuggestions, setShowCitySuggestions] = useState(false);
     const [userTrips, setUserTrips] = useState<Trip[]>([]);
     const [placeToSave, setPlaceToSave] = useState<Place | null>(null);
+    // Tapping a place opens OUR detail sheet first — reviews, photos, Apollo's
+    // take — instead of ejecting straight into Google/Apple Maps.
+    const [detailPlace, setDetailPlace] = useState<Place | null>(null);
+    const [aiSummary, setAiSummary] = useState<string | undefined>();
+    const [aiLoading, setAiLoading] = useState(false);
     const [hasInitializedLocation, setHasInitializedLocation] = useState(false);
     const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
     const [nearbyFood, setNearbyFood] = useState<Place[]>([]);
@@ -82,23 +90,29 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
     const mapRef = useRef<HTMLDivElement>(null);
     const googleMapRef = useRef<any>(null);
     const geocoderRef = useRef<any>(null);
+    const placeMarkersRef = useRef<any[]>([]); // cleared per search — markers used to pile up forever
 
     const [travelMode, setTravelMode] = useState('DRIVING');
 
     useEffect(() => {
         const loadSavedPlaces = async () => {
-            const user = getActiveUser();
-            if (user && !user.id.startsWith('guest')) {
-                const q = query(collection(db, 'saved_places'), where('user_id', '==', user.id));
-                const snapshot = await getDocs(q);
-                const loadedPlaces: Place[] = [];
-                snapshot.forEach(doc => {
-                    loadedPlaces.push(doc.data().place_data as Place);
-                });
-                setSavedPlaces(loadedPlaces);
-            } else {
-                const stored = localStorage.getItem('urtc_saved_places');
-                if (stored) setSavedPlaces(JSON.parse(stored));
+            try {
+                const user = getActiveUser();
+                if (user && !user.id.startsWith('guest')) {
+                    const q = query(collection(db, 'saved_places'), where('user_id', '==', user.id));
+                    const snapshot = await getDocs(q);
+                    const loadedPlaces: Place[] = [];
+                    snapshot.forEach(doc => {
+                        loadedPlaces.push(doc.data().place_data as Place);
+                    });
+                    setSavedPlaces(loadedPlaces);
+                } else {
+                    const stored = localStorage.getItem('urtc_saved_places');
+                    if (stored) setSavedPlaces(JSON.parse(stored));
+                }
+            } catch (e) {
+                console.error('Saved places failed to load:', e);
+                localStorage.removeItem('urtc_saved_places'); // corrupt local data — reset
             }
         };
         loadSavedPlaces();
@@ -256,6 +270,24 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
         }
     }, [mapReady, hasInitializedLocation]);
 
+    // React to a city handed in from another tab (Trending Now on Today,
+    // Apollo, a trip destination). This view is kept alive and never
+    // remounts, so `useState(initialCity)` alone would ignore every change
+    // after the first — tapping Tokyo switched tabs but left Explore in
+    // Atlanta. Skip the very first run: geolocation owns the initial city.
+    const lastRequestedCityRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!initialCity) return;
+        if (lastRequestedCityRef.current === null) {
+            lastRequestedCityRef.current = initialCity; // record the mount value, don't act
+            return;
+        }
+        if (initialCity === lastRequestedCityRef.current) return;
+        lastRequestedCityRef.current = initialCity;
+        if (initialCity.trim().toLowerCase() === currentCity.trim().toLowerCase()) return;
+        handleCityChange(initialCity);
+    }, [initialCity]);
+
     // Follow the user as they walk — refresh the nearby feed after ~250m of movement
     useEffect(() => {
         if (!mapReady || !("geolocation" in navigator)) return;
@@ -296,16 +328,22 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
         }
     }, [userCoords, mapReady, activeTab]);
 
-    // City Autocomplete logic using Google Places
+    // City Autocomplete — debounced (was one Places API call per keystroke)
+    // and stale-response-proof (a slow early response can't overwrite a newer one).
     useEffect(() => {
         if (!cityInput || !window.google) return;
-        const autocompleteService = new window.google.maps.places.AutocompleteService();
-        autocompleteService.getPlacePredictions({ input: cityInput, types: ['(cities)'] }, (predictions: any[], status: any) => {
-            if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
-                setCitySuggestions(predictions.map(p => p.description));
-                setShowCitySuggestions(true);
-            }
-        });
+        let cancelled = false;
+        const timer = setTimeout(() => {
+            const autocompleteService = new window.google.maps.places.AutocompleteService();
+            autocompleteService.getPlacePredictions({ input: cityInput, types: ['(cities)'] }, (predictions: any[], status: any) => {
+                if (cancelled) return;
+                if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
+                    setCitySuggestions(predictions.map(p => p.description));
+                    setShowCitySuggestions(true);
+                }
+            });
+        }, 300);
+        return () => { cancelled = true; clearTimeout(timer); };
     }, [cityInput]);
 
     const handleCityChange = async (city: string, coords?: { lat: number; lng: number }) => {
@@ -318,27 +356,50 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
         // Track for Apollo proactive tips
         localStorage.setItem('urtc_last_city', city.split(',')[0].trim());
 
+        // ONE anchor for the whole tab. Everything below — weather, the map,
+        // the list, and the "Around You Now" rails — is resolved from these
+        // coordinates, so changing the city can't leave one panel in Atlanta
+        // while another is in Tokyo.
+        let anchor = coords || null;
         try {
-            // If we know exactly where the user is, weather comes from those coordinates
-            // so the forecast and the nearby places always describe the same spot.
-            const weatherData = coords
-                ? await fetchRealWeatherByCoords(coords.lat, coords.lng)
+            if (!anchor) {
+                // Geocode independently of the map: the map only exists once the
+                // Map tab has been opened, and the list must work regardless.
+                if (!geocoderRef.current && window.google?.maps?.Geocoder) {
+                    geocoderRef.current = new window.google.maps.Geocoder();
+                }
+                if (geocoderRef.current) {
+                    anchor = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
+                        geocoderRef.current.geocode({ address: city }, (results: any[], status: any) => {
+                            if (status === 'OK' && results?.[0]) {
+                                const l = results[0].geometry.location;
+                                resolve({ lat: l.lat(), lng: l.lng() });
+                            } else resolve(null);
+                        });
+                    });
+                }
+            }
+
+            if (anchor) {
+                setUserCoords(anchor);
+                pendingCenterRef.current = { ...anchor, zoom: 13 };
+                if (googleMapRef.current) googleMapRef.current.setCenter(anchor);
+            }
+
+            // Weather from the same anchor whenever we have it
+            const weatherData = anchor
+                ? await fetchRealWeatherByCoords(anchor.lat, anchor.lng)
                 : await fetchRealWeather(city);
             setWeather(weatherData);
 
-            if (geocoderRef.current && googleMapRef.current) {
-                geocoderRef.current.geocode({ address: city }, (results: any[], status: any) => {
-                    if (status === 'OK' && results[0]) {
-                        const location = results[0].geometry.location;
-                        pendingCenterRef.current = { lat: location.lat(), lng: location.lng(), zoom: 13 };
-                        googleMapRef.current.setCenter(location);
-                        performSearch("Attractions", location);
-                    }
-                });
-            } else {
-                performSearch("Attractions");
+            // Re-anchor the nearby rails too — they used to stay on the old city
+            if (anchor) {
+                fetchAirQuality(anchor.lat, anchor.lng).then(setAirQuality).catch(() => {});
+                fetchNearbyPlaces(anchor);
             }
-        } catch (e) { }
+
+            performSearch(searchQuery || "Attractions", anchor || undefined);
+        } catch (e) { /* a partial city switch is still better than none */ }
     };
 
     // Smart Price Estimation Logic
@@ -373,18 +434,41 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
         return { display: 'Varies', estimate: 30, level: 2 };
     };
 
+    // Open a place in the in-app detail sheet and ask Apollo for his take
+    const openPlace = (place: Place) => {
+        setDetailPlace(place);
+        setAiSummary(undefined);
+        setAiLoading(true);
+        generatePlaceInsight(place.name, currentCity, place.category, place.rating, place.priceDisplay)
+            .then(text => { setAiSummary(text || undefined); })
+            .finally(() => setAiLoading(false));
+    };
+
     const performSearch = async (query: string, locationOverride?: any) => {
         setIsSearching(true);
 
         // If Google Maps Places library is available
         if (window.google && window.google.maps && window.google.maps.places) {
-            const center = locationOverride || (googleMapRef.current ? googleMapRef.current.getCenter() : null);
+            const center = locationOverride
+                || userCoords
+                || (googleMapRef.current ? googleMapRef.current.getCenter() : null);
             const fullQuery = dietaryFilter ? `${dietaryFilter} ${query}` : query;
-            const request = {
-                textQuery: fullQuery + " in " + currentCity,
-                fields: ['id', 'displayName', 'types', 'rating', 'priceLevel', 'photos', 'location', 'formattedAddress', 'googleMapsURI', 'websiteURI'],
-                locationBias: center,
-            };
+            // With real coordinates, a radius bias finds the right places far
+            // better than tacking " in <city>" onto the text — that string
+            // fights the geo signal and is why searches needed exact wording.
+            const request: any = center
+                ? {
+                    textQuery: fullQuery,
+                    fields: ['id', 'displayName', 'types', 'rating', 'userRatingCount', 'priceLevel', 'photos', 'location', 'formattedAddress', 'googleMapsURI', 'websiteURI', 'regularOpeningHours'],
+                    locationBias: { center, radius: 20000 },
+                    isOpenNow: false,
+                    maxResultCount: 20,
+                }
+                : {
+                    textQuery: `${fullQuery} in ${currentCity}`,
+                    fields: ['id', 'displayName', 'types', 'rating', 'userRatingCount', 'priceLevel', 'photos', 'location', 'formattedAddress', 'googleMapsURI', 'websiteURI', 'regularOpeningHours'],
+                    maxResultCount: 20,
+                };
 
             try {
                 const { places } = await window.google.maps.places.Place.searchByText(request);
@@ -441,15 +525,17 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
 
                     setPlaces(mapped);
 
-                    // Update Map Markers if map is active
+                    // Update Map Markers if map is active — clear the previous
+                    // search's markers first or every search stacks more pins.
                     if (googleMapRef.current) {
-                        places.forEach((p: any) => {
+                        placeMarkersRef.current.forEach((m: any) => { m.map = null; });
+                        placeMarkersRef.current = places.map((p: any) =>
                             new window.google.maps.marker.AdvancedMarkerElement({
                                 map: googleMapRef.current,
                                 position: p.location,
                                 title: p.displayName
-                            });
-                        });
+                            })
+                        );
                     }
                 }
             } catch (e) { console.error(e); }
@@ -610,11 +696,9 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                         const score = (p: any) => (p.rating || 4) - parseFloat(p.distanceText || '9') * 1.5;
                         const gem = all.reduce((a, b) => (score(b) > score(a) ? b : a));
                         return (
-                            <a
-                                href={gem.websiteUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="relative block w-full h-44 rounded-3xl overflow-hidden group shadow-xl border border-black/5 dark:border-white/10"
+                            <button
+                                onClick={() => openPlace(gem)}
+                                className="relative block w-full h-44 rounded-3xl overflow-hidden group shadow-xl border border-black/5 dark:border-white/10 text-left press press-card"
                             >
                                 <img src={gem.image} alt={gem.name} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-black/10" />
@@ -632,7 +716,7 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                                         <span className="opacity-70">{gem.category}</span>
                                     </div>
                                 </div>
-                            </a>
+                            </button>
                         );
                     })()}
 
@@ -641,12 +725,10 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                             <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500 px-1 mb-2">{nearbyFilter === 'All' ? 'Grab a Bite' : `${NEARBY_FILTERS[nearbyFilter]?.emoji} ${nearbyFilter} Near You`}</div>
                             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x">
                                 {nearbyFood.map((p) => (
-                                    <a
+                                    <button
                                         key={p.id}
-                                        href={p.websiteUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="relative min-w-[160px] w-40 h-52 rounded-3xl overflow-hidden snap-start shrink-0 group shadow-lg border border-black/5 dark:border-white/10"
+                                        onClick={() => openPlace(p)}
+                                        className="relative min-w-[160px] w-40 h-52 rounded-3xl overflow-hidden snap-start shrink-0 group shadow-lg border border-black/5 dark:border-white/10 text-left press press-card"
                                     >
                                         <img src={p.image} alt={p.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
@@ -667,7 +749,7 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                                                 {p.durationText && <span className="flex items-center gap-1"><Navigation size={9} /> {p.durationText}</span>}
                                             </div>
                                         </div>
-                                    </a>
+                                    </button>
                                 ))}
                             </div>
                         </div>
@@ -685,12 +767,10 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                             <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500 px-1 mb-2">{nearbyFilter === 'All' ? 'Things to See' : `${NEARBY_FILTERS[nearbyFilter]?.emoji} ${nearbyFilter} Near You`}</div>
                             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x">
                                 {nearbyAttractions.map((p) => (
-                                    <a
+                                    <button
                                         key={p.id}
-                                        href={p.websiteUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="relative min-w-[160px] w-40 h-52 rounded-3xl overflow-hidden snap-start shrink-0 group shadow-lg border border-black/5 dark:border-white/10"
+                                        onClick={() => openPlace(p)}
+                                        className="relative min-w-[160px] w-40 h-52 rounded-3xl overflow-hidden snap-start shrink-0 group shadow-lg border border-black/5 dark:border-white/10 text-left press press-card"
                                     >
                                         <img src={p.image} alt={p.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
@@ -711,7 +791,7 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                                                 {p.durationText && <span className="flex items-center gap-1"><Navigation size={9} /> {p.durationText}</span>}
                                             </div>
                                         </div>
-                                    </a>
+                                    </button>
                                 ))}
                             </div>
                         </div>
@@ -822,9 +902,11 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                             </p>
                         </div>
                     ) : places.map((place, i) => (
-                        <div key={place.id} className="bg-white dark:bg-[#151921] p-3 rounded-2xl border border-gray-200 dark:border-white/5 flex gap-4 group hover:border-brand-orange/30 transition shadow-sm relative overflow-hidden">
-
-
+                        <div
+                            key={place.id}
+                            onClick={() => openPlace(place)}
+                            className="bg-white dark:bg-[#151921] p-3 rounded-2xl border border-gray-200 dark:border-white/5 flex gap-4 group hover:border-brand-orange/30 transition shadow-sm relative overflow-hidden cursor-pointer press press-card"
+                        >
                             <div className="w-24 h-24 rounded-xl bg-gray-200 dark:bg-gray-800 shrink-0 overflow-hidden relative">
                                 <img src={place.image} alt={place.name} className="w-full h-full object-cover" />
                                 <div className="absolute top-1 left-1 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white flex items-center gap-1"><Star size={8} className="text-brand-orange fill-current" /> {place.rating}</div>
@@ -834,11 +916,12 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                                     <div className="flex justify-between items-start">
                                         <h4 className="text-gray-900 dark:text-white font-bold text-lg leading-tight">{place.name}</h4>
                                         <div className="flex gap-2">
-                                            <button 
-                                                onClick={() => {
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
                                                     toggleSavePlace(place);
                                                     setPlaceToSave(place);
-                                                }} 
+                                                }}
                                                 className={`px-3 py-1.5 rounded-full font-bold text-xs flex items-center gap-1.5 transition active:scale-95 ${savedPlaces.some(p => p.id === place.id) ? 'bg-brand-orange text-white' : 'bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-white hover:bg-brand-orange hover:text-white'}`}
                                             >
                                                 <Bookmark size={14} className={savedPlaces.some(p => p.id === place.id) ? 'fill-current' : ''} />
@@ -863,11 +946,9 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                                             {place.priceDisplay}
                                         </span>
                                     </div>
-                                    <a href={place.websiteUrl} target="_blank" rel="noopener noreferrer" className={`text-xs font-bold hover:underline ${place.id === '2' ? 'text-brand-orange flex items-center gap-1' : 'text-brand-blue'}`}>
-                                        {place.id === '2' ? (
-                                            <>Book Now <ExternalLink size={10} /></>
-                                        ) : 'Visit'}
-                                    </a>
+                                    <span className="text-xs font-bold text-brand-blue flex items-center gap-1">
+                                        Details <ChevronDown size={11} className="-rotate-90" />
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -888,7 +969,7 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                         </div>
                     ) : savedPlaces.map((place, i) => (
                         <SwipeToDelete key={place.id} onDelete={() => toggleSavePlace(place)}>
-                            <div className="bg-white dark:bg-[#151921] p-3 rounded-2xl border border-brand-orange/30 flex gap-4 group shadow-sm relative overflow-hidden">
+                            <div onClick={() => openPlace(place)} className="bg-white dark:bg-[#151921] p-3 rounded-2xl border border-brand-orange/30 flex gap-4 group shadow-sm relative overflow-hidden cursor-pointer press press-card">
                                 <div className="w-24 h-24 rounded-xl bg-gray-200 dark:bg-gray-800 shrink-0 overflow-hidden relative">
                                     <img src={place.image} alt={place.name} className="w-full h-full object-cover" />
                                     <div className="absolute top-1 left-1 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white flex items-center gap-1"><Star size={8} className="text-brand-orange fill-current" /> {place.rating}</div>
@@ -897,7 +978,7 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                                     <div>
                                         <div className="flex justify-between items-start">
                                             <h4 className="text-gray-900 dark:text-white font-bold text-lg leading-tight">{place.name}</h4>
-                                            <button onClick={() => toggleSavePlace(place)} className="p-2 bg-red-500/10 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition shrink-0 active:scale-95"><Trash2 size={16} /></button>
+                                            <button onClick={(e) => { e.stopPropagation(); toggleSavePlace(place); }} className="p-2 bg-red-500/10 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition shrink-0 active:scale-95"><Trash2 size={16} /></button>
                                         </div>
                                         <p className="text-gray-500 dark:text-gray-400 text-xs mt-1 line-clamp-1">{place.description}</p>
                                     </div>
@@ -907,9 +988,9 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                                                 {Array(place.priceLevel).fill('$').join('')}
                                             </span>
                                         </div>
-                                        <a href={place.websiteUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-brand-blue flex items-center gap-1 hover:underline">
-                                            View on Google <ExternalLink size={10} />
-                                        </a>
+                                        <span className="text-xs font-bold text-brand-blue flex items-center gap-1">
+                                            Details <ChevronDown size={11} className="-rotate-90" />
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -1011,54 +1092,43 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
                 )}
             </div>
 
-            {/* Trip Selection Modal */}
-            {placeToSave && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white dark:bg-[#151921] rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl border border-gray-200 dark:border-white/10 p-5 space-y-4">
-                        <div className="flex justify-between items-center">
-                            <h3 className="font-bold text-lg text-gray-900 dark:text-white">Save {placeToSave.name} to Trip</h3>
-                            <button onClick={() => setPlaceToSave(null)} className="p-2 text-gray-400 hover:text-white transition"><Trash2 size={20}/></button>
-                        </div>
-                        
-                        {userTrips.length === 0 ? (
-                            <p className="text-sm text-gray-500">You don't have any active trips. Create one in the Plans tab first!</p>
-                        ) : (
-                            <div className="space-y-2 max-h-60 overflow-y-auto">
-                                {userTrips.map(trip => (
-                                    <button 
-                                        key={trip.id}
-                                        onClick={async () => {
-                                            const newItem = { id: Date.now().toString(), type: placeToSave.category as any, label: placeToSave.name, planned: placeToSave.priceEstimate };
-                                            const updatedBudget = [...(trip.budget_categories || []), newItem];
-                                            const updatedPlaces = [...(trip.places || []), placeToSave];
-                                            
-                                            const aiNote = {
-                                                id: Date.now().toString(),
-                                                tripName: trip.name,
-                                                city: trip.name,
-                                                stateCountry: '',
-                                                title: `Itinerary: ${placeToSave.name}`,
-                                                content: `I've added ${placeToSave.name} to your itinerary! It's a highly-rated ${placeToSave.category.toLowerCase()} (${placeToSave.rating} stars). Expected cost is around ${placeToSave.priceDisplay}. Be sure to check it out!`,
-                                                date: new Date(),
-                                                isAiGenerated: true
-                                            };
-                                            const updatedNotes = [...(trip.notes || []), aiNote];
+            {/* Rich place detail — reviews, photos, Apollo's take — before Maps */}
+            <PlaceDetailSheet
+                place={detailPlace}
+                onClose={() => setDetailPlace(null)}
+                aiSummary={aiSummary}
+                aiLoading={aiLoading}
+                onSaveToTrip={(p) => { setDetailPlace(null); setPlaceToSave(p); }}
+            />
 
-                                            await updateTrip(trip.id, { budget_categories: updatedBudget, places: updatedPlaces, notes: updatedNotes });
-                                            setPlaceToSave(null);
-                                            alert(`Added ${placeToSave.name} to ${trip.name}! Apollo also created an itinerary note for you.`);
-                                        }}
-                                        className="w-full text-left px-4 py-3 rounded-xl bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:border-brand-orange transition active:scale-95 text-sm font-bold dark:text-white"
-                                    >
-                                        {trip.name}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                        <button onClick={() => setPlaceToSave(null)} className="w-full py-3 bg-gray-200 dark:bg-white/10 text-gray-900 dark:text-white rounded-xl font-bold text-sm transition mt-2">Close</button>
-                    </div>
-                </div>
-            )}
+            {/* Save to a trip — and create one right here if none exists */}
+            <SaveToTripSheet
+                itemLabel={placeToSave?.name || null}
+                kind="place"
+                userId={getActiveUser()?.id || 'guest'}
+                suggestedTripName={currentCity ? `${currentCity.split(',')[0]} Trip` : undefined}
+                onClose={() => setPlaceToSave(null)}
+                onPick={async (trip) => {
+                    if (!placeToSave) return;
+                    const newItem = { id: Date.now().toString(), type: placeToSave.category as any, label: placeToSave.name, planned: placeToSave.priceEstimate };
+                    const aiNote = {
+                        id: `note-${Date.now()}`,
+                        tripName: trip.name,
+                        city: currentCity,
+                        stateCountry: '',
+                        title: `Saved: ${placeToSave.name}`,
+                        content: `${placeToSave.name} — a ${placeToSave.category.toLowerCase()} rated ${placeToSave.rating} stars, around ${placeToSave.priceDisplay}. ${placeToSave.description || ''}`,
+                        date: new Date(),
+                        isAiGenerated: true,
+                    };
+                    await updateTrip(trip.id, {
+                        budget_categories: [...(trip.budget_categories || []), newItem] as any,
+                        places: [...(trip.places || []), placeToSave] as any,
+                        notes: [...(trip.notes || []), aiNote] as any,
+                    });
+                    try { window.dispatchEvent(new CustomEvent('urtc-trips-changed')); } catch { /* ignore */ }
+                }}
+            />
         </div >
     );
 });
