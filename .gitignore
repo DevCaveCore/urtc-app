@@ -48,3 +48,6 @@ functions/node_modules
 # NDAs and strategy/financial models. These live in Drive, never in git.
 *.docx
 *.pdf
+
+# Generated video intermediates — regenerate with promo-media.mjs
+marketing/social/video/_frames/
