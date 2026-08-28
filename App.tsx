@@ -470,8 +470,25 @@ const AppContent: React.FC = () => {
                 </div>
             )}
             
-            {showDiamondTutorial && <DiamondTutorialOverlay onClose={handleCloseDiamondTutorial} />}
-            {runTour && <TutorialOverlay onClose={() => setRunTour(false)} />}
+            {showDiamondTutorial && (
+              <DiamondTutorialOverlay
+                onClose={handleCloseDiamondTutorial}
+                // Land them on the flight tab where alerts live, rather than
+                // ending the tour on a dead button.
+                onOpenAlerts={() => handleTabChange(Tab.Flights)}
+              />
+            )}
+            {runTour && (
+              <TutorialOverlay
+                onClose={() => setRunTour(false)}
+                // The tour ends by actually starting a conversation — a new
+                // user who never talks to Apollo never sees the product.
+                onAskApollo={(prompt) => {
+                  try { localStorage.setItem('urtc_apollo_prefill', prompt); } catch { /* ignore */ }
+                  handleTabChange(Tab.Apollo);
+                }}
+              />
+            )}
 
             {/* Offline Banner */}
             {isOffline && (

@@ -270,6 +270,24 @@ export const CityView: React.FC<CityViewProps> = React.memo(({ onAddToBudget, in
         }
     }, [mapReady, hasInitializedLocation]);
 
+    // React to a city handed in from another tab (Trending Now on Today,
+    // Apollo, a trip destination). This view is kept alive and never
+    // remounts, so `useState(initialCity)` alone would ignore every change
+    // after the first — tapping Tokyo switched tabs but left Explore in
+    // Atlanta. Skip the very first run: geolocation owns the initial city.
+    const lastRequestedCityRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!initialCity) return;
+        if (lastRequestedCityRef.current === null) {
+            lastRequestedCityRef.current = initialCity; // record the mount value, don't act
+            return;
+        }
+        if (initialCity === lastRequestedCityRef.current) return;
+        lastRequestedCityRef.current = initialCity;
+        if (initialCity.trim().toLowerCase() === currentCity.trim().toLowerCase()) return;
+        handleCityChange(initialCity);
+    }, [initialCity]);
+
     // Follow the user as they walk — refresh the nearby feed after ~250m of movement
     useEffect(() => {
         if (!mapReady || !("geolocation" in navigator)) return;
